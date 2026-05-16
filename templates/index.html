@@ -69,6 +69,8 @@
     #map {
       flex: 1;
       height: 100%;
+      min-height: 0;
+      position: relative;
     }
 
     .node-item {
@@ -90,6 +92,92 @@
       font-size: 0.9rem;
       color: #555;
     }
+    .map-note {
+      margin-top: 12px;
+      font-size: 0.85rem;
+      color: #555;
+      background: #fff;
+      border-left: 4px solid #f39c12;
+      padding: 8px 10px;
+      border-radius: 4px;
+    }
+    .map-status {
+      margin-top: 8px;
+      font-size: 0.85rem;
+      color: #2c3e50;
+      background: #ffffff;
+      border-left: 4px solid #3498db;
+      padding: 8px 10px;
+      border-radius: 4px;
+    }
+    .legend {
+      margin-top: 8px;
+      background: #fff;
+      border-radius: 4px;
+      padding: 8px 10px;
+      font-size: 0.82rem;
+      color: #2c3e50;
+      border-left: 4px solid #3498db;
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      margin: 3px 0;
+    }
+    .legend-color {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      border: 1px solid #555;
+      display: inline-block;
+    }
+    .node-tooltip {
+      background: rgba(255, 255, 255, 0.95);
+      border: 1px solid #2c3e50;
+      border-radius: 4px;
+      color: #2c3e50;
+      font-weight: 600;
+      box-shadow: none;
+      padding: 2px 6px;
+    }
+    .legend-slide {
+      position: absolute;
+      right: 16px;
+      bottom: 16px;
+      z-index: 1000;
+      width: 255px;
+      transition: transform 0.25s ease;
+    }
+    .legend-slide.collapsed {
+      transform: translateX(215px);
+    }
+    .legend-slide-toggle {
+      position: absolute;
+      left: -90px;
+      top: 8px;
+      background: #2c3e50;
+      color: #fff;
+      border: none;
+      border-radius: 6px 0 0 6px;
+      padding: 8px 10px;
+      cursor: pointer;
+      font-size: 0.82rem;
+      font-weight: 600;
+    }
+    .legend-slide-panel {
+      background: rgba(255, 255, 255, 0.96);
+      border: 1px solid #cfd8dc;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.12);
+      padding: 10px 12px;
+      font-size: 0.83rem;
+      color: #2c3e50;
+    }
+    .legend-slide-panel h4 {
+      margin: 0 0 8px;
+      font-size: 0.9rem;
+    }
 
     footer {
       text-align: center;
@@ -107,6 +195,17 @@
       display: flex;
       align-items: center;
       justify-content: center;
+    }
+    .marker-icon {
+      background-color: #e74c3c;
+      border-radius: 50%;
+      text-align: center;
+      color: white;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 2px solid #ffffff;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.25);
     }
   </style>
 </head>
@@ -127,11 +226,16 @@
 
   <div class="container">
     <aside>
-  <h2>Κόμβοι - {{ region }}</h2>
+  <h2>Κόμβοι - {{ region }} ({{ nodes|length }})</h2>
   {% for node in nodes %}
     <div class="node-item">
       <h3>{{ node.title }}</h3>
       <p>Τοποθεσία: {{ node.location }}</p>
+      <p>Περιγραφή: {{ node.description or 'Μη διαθέσιμη' }}</p>
+      <p>Τύπος: {{ 'Γονικός' if node.is_parent else 'Θυγατρικός' }}</p>
+      {% if not node.is_parent %}
+      <p>Επικινδυνότητα: {{ node.danger_level if node.danger_level is not none else 'Μη διαθέσιμη' }}</p>
+      {% endif %}
       {% if node.is_parent %}
         <a href="{{ url_for('parent_node', node_id=node.node_id[1:].replace('_', '.')) }}">
           Προβολή θυγατρικών κόμβων &rarr;
@@ -143,10 +247,34 @@
       {% endif %}
     </div>
   {% endfor %}
+  <div class="map-note">
+    Αν λείπουν συντεταγμένες <code>lat/lng</code>, οι κόμβοι τοποθετούνται αυτόματα σε εκτιμώμενες θέσεις.
+  </div>
+  <div id="map-status" class="map-status">Φόρτωση κόμβων στον χάρτη...</div>
+  <div class="legend">
+    <strong>Χρώμα θυγατρικών κόμβων</strong>
+    <div class="legend-item"><span class="legend-color" style="background:#00c8ff;"></span> 1 - Light Blue</div>
+    <div class="legend-item"><span class="legend-color" style="background:#2ecc71;"></span> 2 - Green</div>
+    <div class="legend-item"><span class="legend-color" style="background:#ffeb3b;"></span> 3 - Yellow</div>
+    <div class="legend-item"><span class="legend-color" style="background:#ff9800;"></span> 4 - Orange</div>
+    <div class="legend-item"><span class="legend-color" style="background:#d50000;"></span> 5 - Red</div>
+  </div>
 </aside>
 
 
-    <div id="map" style="height: 600px;"></div>
+    <div id="map">
+      <div id="legend-slide" class="legend-slide">
+        <button id="legend-slide-toggle" class="legend-slide-toggle" type="button">Χρώματα</button>
+        <div class="legend-slide-panel">
+          <h4>Επίπεδο Επικινδυνότητας</h4>
+          <div class="legend-item"><span class="legend-color" style="background:#00c8ff;"></span> 1 - Χαμηλή</div>
+          <div class="legend-item"><span class="legend-color" style="background:#2ecc71;"></span> 2 - Μέτρια</div>
+          <div class="legend-item"><span class="legend-color" style="background:#ffeb3b;"></span> 3 - Αυξημένη</div>
+          <div class="legend-item"><span class="legend-color" style="background:#ff9800;"></span> 4 - Υψηλή</div>
+          <div class="legend-item"><span class="legend-color" style="background:#d50000;"></span> 5 - Κρίσιμη</div>
+        </div>
+      </div>
+    </div>
 
 
   </div>
@@ -169,19 +297,35 @@
 
   // Get nodes data from Flask
   const nodes = {{ nodes | tojson | safe }};
+  const mapStatus = document.getElementById('map-status');
   console.log("Nodes data:", nodes);
 
   /**
-   * Create appropriate icon for node type
-   * @param {boolean} isParent - Whether node is a parent node
-   * @returns {L.DivIcon} - Leaflet icon object
+   * Create an always-visible marker (no external icon dependency).
+   * @param {number} lat
+   * @param {number} lng
+   * @param {boolean} isParent
+   * @returns {L.CircleMarker}
    */
-  const createNodeIcon = (isParent) => {
-    return L.divIcon({
-      className: isParent ? 'home-icon' : 'marker-icon',
-      html: `<i class="fas ${isParent ? 'fa-home' : 'fa-circle'}"></i>`,
-      iconSize: isParent ? [30, 30] : [20, 20],
-      iconAnchor: isParent ? [15, 15] : [10, 10]
+  const childColorByDanger = (dangerLevel) => {
+    const level = Number(dangerLevel);
+    if (level === 1) return '#00c8ff'; // light blue
+    if (level === 2) return '#2ecc71'; // green
+    if (level === 3) return '#ffeb3b'; // yellow
+    if (level === 4) return '#ff9800'; // orange
+    if (level === 5) return '#d50000'; // red
+    return '#95a5a6'; // unknown
+  };
+
+  const createNodeMarker = (lat, lng, isParent, dangerLevel) => {
+    const childFill = childColorByDanger(dangerLevel);
+    const childStroke = '#1f2d3d';
+    return L.circleMarker([lat, lng], {
+      radius: isParent ? 11 : 9,
+      color: isParent ? '#1f2d3d' : childStroke,
+      fillColor: isParent ? '#2c3e50' : childFill,
+      fillOpacity: 1.0,
+      weight: isParent ? 2 : 1.5
     });
   };
 
@@ -192,19 +336,36 @@
    * @returns {string} - Formatted URL
    */
   const getNodeUrl = (nodeId, isParent) => {
-    const formattedId = nodeId.slice(1).replaceAll('_', '.');
+    const safeNodeId = typeof nodeId === 'string' ? nodeId : '';
+    const formattedId = safeNodeId.startsWith('N')
+      ? safeNodeId.slice(1).replace(/_/g, '.')
+      : safeNodeId.replace(/_/g, '.');
     return isParent ? `/parent/${formattedId}` : `/node/${formattedId}`;
   };
 
   // Process nodes and create markers
   const parentCoords = {};
+  const nodeCoords = {};
+  const markerLatLngs = [];
+  const baseCenter = [40.95, 24.5];
+  let markerCount = 0;
 
-  // First pass: Store parent coordinates
-  nodes.forEach(node => {
-    if (!node.lat || !node.lng) return;
+  const isParentNode = (node) => node.is_parent === true || node.is_parent === 'true';
+  const hasCoordinates = (node) => {
+    const lat = parseFloat(node.lat);
+    const lng = parseFloat(node.lng);
+    return Number.isFinite(lat) && Number.isFinite(lng);
+  };
+  const getParentId = (nodeId) => {
+    if (!nodeId || !nodeId.includes('_')) return null;
+    return `N${nodeId.split('_')[0].slice(1)}`;
+  };
 
-    const isParent = node.is_parent === true || node.is_parent === 'true';
-    if (isParent) {
+  // First pass: set parent coordinates from DB when available.
+  const safeNodes = Array.isArray(nodes) ? nodes : [];
+  const parentNodes = safeNodes.filter(isParentNode);
+  parentNodes.forEach((node) => {
+    if (hasCoordinates(node)) {
       parentCoords[node.node_id] = {
         lat: parseFloat(node.lat),
         lng: parseFloat(node.lng)
@@ -212,43 +373,105 @@
     }
   });
 
-  // Second pass: Create markers and connections
-  nodes.forEach(node => {
-    if (!node.lat || !node.lng) return;
+  // Second pass: create synthetic coordinates for parents missing lat/lng.
+  const parentsMissingCoords = parentNodes.filter((node) => !parentCoords[node.node_id]);
+  parentsMissingCoords.forEach((node, index) => {
+    const angle = (2 * Math.PI * index) / Math.max(1, parentsMissingCoords.length);
+    const radius = 0.12; // degrees around Kavala (visual fallback only)
+    parentCoords[node.node_id] = {
+      lat: baseCenter[0] + radius * Math.cos(angle),
+      lng: baseCenter[1] + radius * Math.sin(angle)
+    };
+  });
 
-    const lat = parseFloat(node.lat);
-    const lng = parseFloat(node.lng);
-    const isParent = node.is_parent === true || node.is_parent === 'true';
-    const label = node.title || node.node_id;
-    const url = getNodeUrl(node.node_id, isParent);
+  // Third pass: place each node.
+  safeNodes.forEach((node, fallbackIndex) => {
+    const isParent = isParentNode(node);
+    let lat;
+    let lng;
 
-    // Create and add marker
-    const marker = L.marker([lat, lng], {
-      icon: createNodeIcon(isParent)
-    })
-      .addTo(map)
-      .bindTooltip(label, {
-        direction: 'top',
-        offset: [0, -10],
-        opacity: 0.9
-      })
-      .on('click', () => { window.location.href = url });
-
-    // Draw connection line for child nodes
-    if (!isParent && node.node_id.includes('_')) {
-      const parentId = 'N' + node.node_id.split('_')[0].slice(1);
-      if (parentCoords[parentId]) {
-        L.polyline(
-          [[lat, lng], [parentCoords[parentId].lat, parentCoords[parentId].lng]],
-          {
-            color: 'red',
-            weight: 2,
-            dashArray: '5,5'
-          }
-        ).addTo(map);
+    if (hasCoordinates(node)) {
+      lat = parseFloat(node.lat);
+      lng = parseFloat(node.lng);
+    } else if (isParent && parentCoords[node.node_id]) {
+      lat = parentCoords[node.node_id].lat;
+      lng = parentCoords[node.node_id].lng;
+    } else {
+      const parentId = getParentId(node.node_id);
+      if (parentId && parentCoords[parentId]) {
+        // Scatter children around their parent.
+        const childSuffix = parseInt((node.node_id.split('_')[1] || '1'), 10) || 1;
+        const angle = (childSuffix - 1) * (Math.PI / 3);
+        const radius = 0.03;
+        lat = parentCoords[parentId].lat + radius * Math.cos(angle);
+        lng = parentCoords[parentId].lng + radius * Math.sin(angle);
+      } else {
+        // Fallback for orphan nodes.
+        const angle = fallbackIndex * (Math.PI / 4);
+        const radius = 0.2;
+        lat = baseCenter[0] + radius * Math.cos(angle);
+        lng = baseCenter[1] + radius * Math.sin(angle);
       }
     }
+
+    nodeCoords[node.node_id] = { lat, lng };
+
+    const label = node.title || node.node_id;
+    const url = getNodeUrl(node.node_id, isParent);
+    const tooltipText = isParent
+      ? label
+      : `${label} (danger: ${node.danger_level ?? 'N/A'})`;
+
+    createNodeMarker(lat, lng, isParent, node.danger_level)
+      .addTo(map)
+      .bindTooltip(tooltipText, {
+        direction: 'top',
+        offset: [0, -10],
+        opacity: 0.95,
+        permanent: true,
+        className: 'node-tooltip'
+      })
+      .on('click', () => { window.location.href = url; });
+
+    markerLatLngs.push([lat, lng]);
+    markerCount += 1;
   });
+
+  // Draw parent-child relation lines.
+  safeNodes.forEach((node) => {
+    if (isParentNode(node) || !node.node_id.includes('_')) return;
+    const parentId = getParentId(node.node_id);
+    if (!parentId || !nodeCoords[parentId] || !nodeCoords[node.node_id]) return;
+
+    L.polyline(
+      [
+        [nodeCoords[node.node_id].lat, nodeCoords[node.node_id].lng],
+        [nodeCoords[parentId].lat, nodeCoords[parentId].lng]
+      ],
+      {
+        color: '#34495e',
+        weight: 2,
+        dashArray: '5,5'
+      }
+    ).addTo(map);
+  });
+
+  if (markerCount > 0) {
+    map.fitBounds(markerLatLngs, { padding: [30, 30] });
+    mapStatus.textContent = `Εμφανίζονται ${markerCount} κόμβοι στον χάρτη.`;
+  } else {
+    mapStatus.textContent = 'Δεν βρέθηκαν κόμβοι για εμφάνιση.';
+  }
+
+  // Slide-out color legend toggle.
+  const legendSlide = document.getElementById('legend-slide');
+  const legendToggle = document.getElementById('legend-slide-toggle');
+  if (legendSlide && legendToggle) {
+    legendToggle.addEventListener('click', () => {
+      legendSlide.classList.toggle('collapsed');
+      legendToggle.textContent = legendSlide.classList.contains('collapsed') ? 'Χρώματα' : 'Κλείσιμο';
+    });
+  }
 </script>
 </body>
 </html>

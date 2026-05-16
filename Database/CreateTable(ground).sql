@@ -1,18 +1,25 @@
-CREATE TABLE Nodes (
+CREATE TABLE IF NOT EXISTS nodes (
     node_id VARCHAR(20) PRIMARY KEY,
     title VARCHAR(50),
     location VARCHAR(50),
     description TEXT,
     is_parent BOOLEAN DEFAULT FALSE
 );
-CREATE TABLE Node_Hierarchy (
+CREATE TABLE IF NOT EXISTS node_locations (
+    node_id VARCHAR(20) PRIMARY KEY,
+    lat DECIMAL(9,6) NOT NULL,
+    lng DECIMAL(9,6) NOT NULL,
+    map_label VARCHAR(120),
+    FOREIGN KEY (node_id) REFERENCES nodes(node_id) ON DELETE CASCADE
+);
+CREATE TABLE IF NOT EXISTS node_hierarchy (
     parent_id VARCHAR(20),
     child_id VARCHAR(20),
     PRIMARY KEY (parent_id, child_id),
-    FOREIGN KEY (parent_id) REFERENCES Nodes(node_id),
-    FOREIGN KEY (child_id) REFERENCES Nodes(node_id)
+    FOREIGN KEY (parent_id) REFERENCES nodes(node_id),
+    FOREIGN KEY (child_id) REFERENCES nodes(node_id)
 );
-CREATE TABLE Sensor_Readings (
+CREATE TABLE IF NOT EXISTS sensor_readings (
     reading_id SERIAL PRIMARY KEY,
     node_id VARCHAR(20),
     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -25,11 +32,11 @@ CREATE TABLE Sensor_Readings (
     flora_density DECIMAL(5,2),
     slope DECIMAL(5,2),
     vegetation_type VARCHAR(50),
-    FOREIGN KEY (node_id) REFERENCES Nodes(node_id)
+    FOREIGN KEY (node_id) REFERENCES nodes(node_id)
 );
 
 -- not necessary
-CREATE TABLE Metadata (
+CREATE TABLE IF NOT EXISTS metadata (
     metadata_id SERIAL PRIMARY KEY,
     description TEXT,
     temperature_unit VARCHAR(20),
@@ -39,7 +46,7 @@ CREATE TABLE Metadata (
     timestamp_format VARCHAR(50)
 );
 
-CREATE TABLE Parent_Node_Reports (
+CREATE TABLE IF NOT EXISTS parent_node_reports (
     report_id SERIAL PRIMARY KEY,
     parent_id VARCHAR(20),
     child_id VARCHAR(20),
@@ -47,6 +54,6 @@ CREATE TABLE Parent_Node_Reports (
     data_received BOOLEAN,
     data_valid BOOLEAN,
     status_message TEXT,
-    FOREIGN KEY (parent_id) REFERENCES Nodes(node_id),
-    FOREIGN KEY (child_id) REFERENCES Nodes(node_id)
+    FOREIGN KEY (parent_id) REFERENCES nodes(node_id),
+    FOREIGN KEY (child_id) REFERENCES nodes(node_id)
 );

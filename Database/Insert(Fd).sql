@@ -1,4 +1,4 @@
-INSERT INTO Fire_Regions (region_id, name) VALUES
+INSERT INTO fire_regions (region_id, name) VALUES
 ('FR1', 'Περιφερειακή Πυροσβεστική Διοίκηση Ανατολικής Μακεδονίας και Θράκης'),
 ('FR2', 'Περιφερειακή Πυροσβεστική Διοίκηση Κεντρικής Μακεδονίας'),
 ('FR3', 'Περιφερειακή Πυροσβεστική Διοίκηση Δυτικής Μακεδονίας'),
@@ -7,20 +7,26 @@ INSERT INTO Fire_Regions (region_id, name) VALUES
 ('FR6', 'Περιφερειακή Πυροσβεστική Διοίκηση Ιονίων Νήσων'),
 ('FR7', 'Περιφερειακή Πυροσβεστική Διοίκηση Δυτικής Ελλάδας'),
 ('FR8', 'Περιφερειακή Πυροσβεστική Διοίκηση Στερεάς Ελλάδας'),
-('FR9', 'Περιφερειακή Πυροσβεστική Διοίκηση Πελοποννήσου'),
-('FR10', 'Περιφερειακή Πυροσβεστική Διοίκηση Αττικής'),
+('FR9', 'Περιφερειακή Πυροσβεστική Διοίκηση Αττικής'),
+('FR10', 'Περιφερειακή Πυροσβεστική Διοίκηση Πελοποννήσου'),
 ('FR11', 'Περιφερειακή Πυροσβεστική Διοίκηση Βορείου Αιγαίου'),
 ('FR12', 'Περιφερειακή Πυροσβεστική Διοίκηση Νοτίου Αιγαίου'),
-('FR13', 'Περιφερειακή Πυροσβεστική Διοίκηση Κρήτης');
+('FR13', 'Περιφερειακή Πυροσβεστική Διοίκηση Κρήτης')
+ON CONFLICT (region_id) DO UPDATE
+SET name = EXCLUDED.name;
 
-INSERT INTO Node_Regions (node_id, region_id) VALUES
+INSERT INTO node_regions (node_id, region_id) VALUES
 ('N1', 'FR1'), -- Node 1 under Ανατολικής Μακεδονίας και Θράκης
-('N2', 'FR1');
+('N2', 'FR1')
+ON CONFLICT (node_id) DO UPDATE
+SET region_id = EXCLUDED.region_id;
 
 -- Map child nodes to the same region as their parent
-INSERT INTO Node_Regions (node_id, region_id) VALUES
+INSERT INTO node_regions (node_id, region_id) VALUES
 ('N1_1', 'FR1'),
 ('N1_2', 'FR1'),
 ('N1_3', 'FR1'),
 ('N2_1', 'FR1'),
-('N2_2', 'FR1');
+('N2_2', 'FR1')
+ON CONFLICT (node_id) DO UPDATE
+SET region_id = EXCLUDED.region_id;

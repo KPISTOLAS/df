@@ -1,6 +1,5 @@
 import random
 from flask import Flask, render_template, jsonify, abort, redirect, url_for, request, session, flash
-from flask_caching import Cache
 from DatabaseScript import (get_node_info, get_node_history, get_node_region,
                             get_parent_node_reports, get_nodes_for_dashboard, get_region_id, get_nodes_by_region)
 
@@ -8,6 +7,9 @@ app = Flask(__name__)
 
 # Set a fixed secret key for development (use environment variable in production)
 app.config['SECRET_KEY'] = '123123123'
+app.config['TEMPLATES_AUTO_RELOAD'] = True
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
+app.jinja_env.auto_reload = True
 
 
 # Drone telemetry data (simulated or real)
@@ -124,11 +126,13 @@ def nodes_info():
         return redirect(url_for('login'))
 
     region_id = get_region_id(session['region'])
-    if not region_id:
-        abort(404, description="Region not found")
 
     try:
-        nodes = get_nodes_by_region(region_id)
+        # Headquarters can view all nodes.
+        if region_id is None:
+            nodes = get_nodes_for_dashboard('Αρχηγείο / Ε.Σ.Κ.Ε.ΔΙ.Κ.')
+        else:
+            nodes = get_nodes_by_region(region_id)
         return render_template('nodes.html', nodes=nodes)
     except Exception as e:
         app.logger.error(f"Error rendering nodes: {str(e)}")
@@ -162,18 +166,20 @@ def parent_node(node_id):
 @app.route('/history/<node_id>')
 def history(node_id):
     try:
-        node_info = get_node_info(node_id)
+        # Accept both "1.1" and "N1_1" formats.
+        supabase_node_id = node_id if node_id.startswith('N') else f"N{node_id.replace('.', '_')}"
+        node_info = get_node_info(supabase_node_id)
 
         # Fallback: if no metadata, use latest sensor reading
         if not node_info:
-            history_data = get_node_history(node_id)
+            history_data = get_node_history(supabase_node_id)
             if history_data:
-                node_info = {"node_id": node_id, **history_data[0]}
+                node_info = {"node_id": supabase_node_id, **history_data[0]}
             else:
                 abort(404, description=f"Node {node_id} not found")
 
         else:
-            history_data = get_node_history(node_id)
+            history_data = get_node_history(supabase_node_id)
 
         return render_template('history.html',
                                node=node_info,

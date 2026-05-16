@@ -80,6 +80,8 @@
     <div style="overflow-x: auto; max-height: 80vh;">
       <table>
         <tr>
+          <th>Reading ID</th>
+          <th>Node ID</th>
           <th>Χρονοσφραγίδα</th>
           <th>Επικινδυνότητα</th>
           <th>Θερμοκρασία</th>
@@ -89,18 +91,22 @@
           <th>Άνεμος</th>
           <th>Χλωρίδα</th>
           <th>Κλίση</th>
+          <th>Τύπος Βλάστησης</th>
         </tr>
         {% for reading in readings %}
         <tr>
-          <td>{{ reading.timestamp }}</td>
-          <td>{{ reading.danger_level }}</td>
-          <td>{{ reading.temperature }}°C</td>
-          <td>{{ reading.humidity }}%</td>
-          <td>{{ reading.gas_and_smoke }} ppm</td>
-          <td>{{ 'Ναι' if reading.rain else 'Όχι' }}</td>
-          <td>{{ reading.wind_speed }} km/h</td>
-          <td>{{ reading.flora_density }}%</td>
-          <td>{{ reading.slope }}°</td>
+          <td>{{ reading.reading_id or '-' }}</td>
+          <td>{{ reading.node_id or '-' }}</td>
+          <td>{{ reading.timestamp or '-' }}</td>
+          <td>{{ reading.danger_level if reading.danger_level is not none else '-' }}</td>
+          <td>{{ reading.temperature if reading.temperature is not none else '-' }}°C</td>
+          <td>{{ reading.humidity if reading.humidity is not none else '-' }}%</td>
+          <td>{{ reading.gas_and_smoke if reading.gas_and_smoke is not none else '-' }} ppm</td>
+          <td>{{ 'Ναι' if reading.rain else 'Όχι' if reading.rain is not none else '-' }}</td>
+          <td>{{ reading.wind_speed if reading.wind_speed is not none else '-' }} km/h</td>
+          <td>{{ reading.flora_density if reading.flora_density is not none else '-' }}%</td>
+          <td>{{ reading.slope if reading.slope is not none else '-' }}°</td>
+          <td>{{ reading.vegetation_type or '-' }}</td>
         </tr>
         {% endfor %}
       </table>

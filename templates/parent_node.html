@@ -91,6 +91,7 @@
           <th>Data Received</th>
           <th>Data Valid</th>
           <th>Status Message</th>
+          <th>Ενέργεια</th>
         </tr>
       </thead>
       <tbody>
@@ -115,6 +116,9 @@
             {% endif %}
           </td>
           <td>{{ report.status_message }}</td>
+          <td>
+            <a href="{{ url_for('node', node_id=report.child_id[1:].replace('_', '.')) }}">Λεπτομέρειες</a>
+          </td>
         </tr>
         {% endfor %}
       </tbody>

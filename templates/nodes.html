@@ -52,8 +52,14 @@
   <div class="node">
     <h2>{{ node.title }}</h2>
     <p><strong>ID:</strong> {{ node.node_id }}</p>
+    <p><strong>Τύπος:</strong> {{ 'Γονικός' if node.is_parent else 'Θυγατρικός' }}</p>
     <p><strong>Τοποθεσία:</strong> {{ node.location or 'Άγνωστη' }}</p>
-    <p><a href="{{ url_for('node', node_id=node.node_id.replace('N', '').replace('_', '.') ) }}">Προβολή Λεπτομερειών &rarr;</a></p>
+    <p><strong>Περιγραφή:</strong> {{ node.description or 'Μη διαθέσιμη' }}</p>
+    {% if node.is_parent %}
+      <p><a href="{{ url_for('parent_node', node_id=node.node_id[1:].replace('_', '.')) }}">Προβολή Θυγατρικών Κόμβων &rarr;</a></p>
+    {% else %}
+      <p><a href="{{ url_for('node', node_id=node.node_id[1:].replace('_', '.') ) }}">Προβολή Λεπτομερειών &rarr;</a></p>
+    {% endif %}
   </div>
 {% else %}
   <p>Δεν υπάρχουν κόμβοι για εμφάνιση.</p>
