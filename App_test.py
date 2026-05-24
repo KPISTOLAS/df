@@ -1,7 +1,12 @@
-import random
+import json
+import traceback
 from flask import Flask, render_template, jsonify, abort, redirect, url_for, request, session, flash
-from DatabaseScript import (get_node_info, get_node_history, get_node_region,
-                            get_parent_node_reports, get_nodes_for_dashboard, get_region_id, get_nodes_by_region)
+from DatabaseScript import (
+    get_node_info, get_node_history, get_node_region,
+    get_parent_node_reports, get_nodes_for_dashboard, get_region_id, get_nodes_by_region,
+    get_drones_for_region, get_drone_info, get_drone_region,
+)
+from drone_sim import step_all, snapshot
 
 app = Flask(__name__)
 
@@ -12,27 +17,20 @@ app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 app.jinja_env.auto_reload = True
 
 
-# Drone telemetry data (simulated or real)
-drone_data = {
-    "drone_id": "DRONE_001",
-    "location": {
-        "lat": 40.95,
-        "lon": 24.5,
-        "altitude": 50.2
-    },
-    "movement": {
-        "speed": 5.3,
-        "heading": 120.5
-    },
-    "battery": {
-        "voltage": 11.1,
-        "percentage": 78
-    },
-    "fire_detection": {
-        "detected": False,
-        "confidence": 0.0,
-    }
-}
+def _validate_drone_access(drone_id):
+    region_name = session.get('region')
+    if not region_name:
+        return False
+    if region_name == 'Αρχηγείο / Ε.Σ.Κ.Ε.ΔΙ.Κ.':
+        return True
+    current_region_id = get_region_id(region_name)
+    drone_region = get_drone_region(drone_id)
+    return current_region_id is not None and drone_region == current_region_id
+
+
+@app.route('/favicon.ico')
+def favicon():
+    return '', 204
 
 
 @app.route('/')
@@ -42,6 +40,7 @@ def index():
 
 @app.route('/login')
 def login():
+    session.clear()
     return render_template('login.html')
 
 
@@ -53,9 +52,13 @@ def set_region():
             flash('Παρακαλώ επιλέξτε μια Περιφερειακή Πυροσβεστική Διοίκηση')
             return redirect(url_for('login'))
 
-        # Store the selected region in the session
-        session['region'] = region
-        return redirect(url_for('dashboard'))
+        from DatabaseScript import _normalize_region_name
+
+        region = _normalize_region_name(region)
+        session["region"] = region
+        session["region_id"] = get_region_id(region)
+        session.modified = True
+        return redirect(url_for("dashboard"))
     except Exception as e:
         app.logger.error(f"Error in set_region: {str(e)}")
         flash('Προέκυψε σφάλμα κατά την επιλογή περιοχής. Παρακαλώ δοκιμάστε ξανά.')
@@ -74,12 +77,26 @@ def dashboard():
         return redirect(url_for('login'))
 
     try:
-        nodes = get_nodes_for_dashboard(session['region'])
-        if nodes is None:
-            abort(500)
+        region_name = session["region"]
+        # Always derive from region name — stale session["region_id"] caused FR1 nodes on other regions
+        region_id = get_region_id(region_name)
+        if session.get("region_id") != region_id:
+            session["region_id"] = region_id
+            session.modified = True
 
-        print("Nodes data from database:", nodes)
-        return render_template('index.html', region=session['region'], nodes=nodes)
+        nodes = get_nodes_for_dashboard(region_name, region_id=region_id)
+        if nodes is None:
+            nodes = []
+
+        allowed_node_ids = [n["node_id"] for n in nodes if n.get("node_id")]
+        print(f"Dashboard region={region_name!r} region_id={region_id!r} nodes={allowed_node_ids}")
+        return render_template(
+            "index.html",
+            region=region_name,
+            region_id=region_id,
+            nodes=nodes,
+            allowed_node_ids=allowed_node_ids,
+        )
     except Exception as e:
         app.logger.error(f"Error loading dashboard: {str(e)}")
         abort(500)
@@ -125,15 +142,17 @@ def nodes_info():
     if 'region' not in session:
         return redirect(url_for('login'))
 
-    region_id = get_region_id(session['region'])
-
     try:
-        # Headquarters can view all nodes.
-        if region_id is None:
-            nodes = get_nodes_for_dashboard('Αρχηγείο / Ε.Σ.Κ.Ε.ΔΙ.Κ.')
-        else:
-            nodes = get_nodes_by_region(region_id)
-        return render_template('nodes.html', nodes=nodes)
+        region_name = session["region"]
+        region_id = get_region_id(region_name)
+        session["region_id"] = region_id
+        nodes = get_nodes_for_dashboard(region_name, region_id=region_id) or []
+        return render_template(
+            "nodes.html",
+            nodes=nodes,
+            region=region_name,
+            region_id=region_id,
+        )
     except Exception as e:
         app.logger.error(f"Error rendering nodes: {str(e)}")
         abort(500)
@@ -151,6 +170,11 @@ def parent_node(node_id):
         if not node_info:
             abort(404, description=f"Parent node {node_id} not found")
 
+        current_region_id = get_region_id(session['region'])
+        node_region = get_node_region(supabase_node_id)
+        if current_region_id is not None and node_region != current_region_id:
+            abort(404, description=f"Parent node {node_id} not found in this region")
+
         # Get report data
         reports = get_parent_node_reports(supabase_node_id)
 
@@ -165,10 +189,19 @@ def parent_node(node_id):
 
 @app.route('/history/<node_id>')
 def history(node_id):
+    if 'region' not in session:
+        return redirect(url_for('login'))
+
     try:
         # Accept both "1.1" and "N1_1" formats.
         supabase_node_id = node_id if node_id.startswith('N') else f"N{node_id.replace('.', '_')}"
         node_info = get_node_info(supabase_node_id)
+
+        if node_info:
+            current_region_id = get_region_id(session['region'])
+            node_region = get_node_region(supabase_node_id)
+            if current_region_id is not None and node_region != current_region_id:
+                abort(404, description=f"Node {node_id} not found in this region")
 
         # Fallback: if no metadata, use latest sensor reading
         if not node_info:
@@ -192,24 +225,82 @@ def history(node_id):
 
 @app.route('/drone')
 def drone_info():
-    return render_template('drone.html')
+    if 'region' not in session:
+        return redirect(url_for('login'))
+    try:
+        drones = get_drones_for_region(session['region']) or []
+        drones_json = json.dumps(drones, ensure_ascii=False, default=str)
+        return render_template(
+            "drone.html",
+            drones=drones,
+            drones_json=drones_json,
+            region=session["region"],
+            region_id=session.get("region_id") or get_region_id(session["region"]),
+        )
+    except Exception as e:
+        app.logger.error(f"Error loading drone page: {e}\n{traceback.format_exc()}")
+        drones_json = json.dumps([], ensure_ascii=False)
+        return render_template(
+            'drone.html',
+            drones=[],
+            drones_json=drones_json,
+            region=session.get('region', ''),
+            error_message="Δεν ήταν δυνατή η φόρτωση των ΣΜΗΕΑ. Εμφανίζεται κενή λίστα.",
+        )
+
+
+@app.route('/api/drones')
+def api_drones():
+    try:
+        region_name = request.args.get('region') or session.get('region')
+        if not region_name:
+            return jsonify({"error": "region not specified"}), 400
+        drones = get_drones_for_region(region_name) or []
+        step_all(drones)
+        live_drones = []
+        for d in drones:
+            drone_id = d.get("drone_id")
+            if not drone_id:
+                continue
+            live_drones.append(snapshot(drone_id, d))
+        return jsonify({"drones": live_drones, "region": region_name, "count": len(live_drones)})
+    except Exception as e:
+        app.logger.error(f"/api/drones failed: {e}")
+        return jsonify({"error": "Failed to fetch drones", "details": str(e)}), 500
 
 
 @app.route('/api/drone_telemetry')
-def drone_telemetry():
-    # Simulate real-time updates (replace with actual drone data)
-    movement_range = 0.0005
-    drone_data["location"]["lat"] += random.uniform(-movement_range, movement_range)
-    drone_data["location"]["lon"] += random.uniform(-movement_range, movement_range)
-    drone_data["location"]["altitude"] = random.uniform(45, 55)
-    drone_data["movement"]["speed"] = random.uniform(4, 6)
-    drone_data["battery"]["percentage"] = max(0, drone_data["battery"]["percentage"] - 0.1)
-    drone_data["fire_detection"]["detected"] = random.random() > 0.8
-    drone_data["fire_detection"]["confidence"] = random.uniform(0.7, 0.95) if drone_data["fire_detection"][
-        "detected"] else 0.0
-    drone_data["fire_detection"]["temperature"] = random.uniform(200, 300) if drone_data["fire_detection"][
-        "detected"] else 0.0
-    return jsonify(drone_data)
+def drone_telemetry_legacy():
+    """Backward-compatible endpoint used by older drone.html scripts."""
+    try:
+        region_name = session.get('region')
+        if not region_name:
+            return jsonify({"error": "region not specified"}), 400
+        drones = get_drones_for_region(region_name) or []
+        if not drones:
+            return jsonify({"error": "No drones found"}), 404
+        drone_id = drones[0].get("drone_id")
+        if not drone_id:
+            return jsonify({"error": "No drones found"}), 404
+        step_all(drones)
+        return jsonify(snapshot(drone_id, drones[0]))
+    except Exception as e:
+        app.logger.error(f"/api/drone_telemetry failed: {e}\n{traceback.format_exc()}")
+        return jsonify({"error": "Failed to get drone telemetry", "details": str(e)}), 500
+
+
+@app.route('/api/drone_telemetry/<drone_id>')
+def drone_telemetry(drone_id):
+    try:
+        if not _validate_drone_access(drone_id):
+            return jsonify({"error": "Drone not found in this region"}), 404
+        info = get_drone_info(drone_id)
+        if not info:
+            return jsonify({"error": "Drone not found"}), 404
+        return jsonify(snapshot(drone_id, info))
+    except Exception as e:
+        app.logger.error(f"/api/drone_telemetry/{drone_id} failed: {e}")
+        return jsonify({"error": "Failed to get drone telemetry", "details": str(e)}), 500
 
 
 if __name__ == '__main__':

@@ -227,6 +227,9 @@
   <div class="container">
     <aside>
   <h2>Κόμβοι - {{ region }} ({{ nodes|length }})</h2>
+  {% if not nodes %}
+  <p class="map-note">Δεν υπάρχουν κόμβοι για την επιλεγμένη περιοχή.</p>
+  {% endif %}
   {% for node in nodes %}
     <div class="node-item">
       <h3>{{ node.title }}</h3>
@@ -295,10 +298,20 @@
     attribution: '© OpenStreetMap contributors'
   }).addTo(map);
 
-  // Get nodes data from Flask
-  const nodes = {{ nodes | tojson | safe }};
+  // Get nodes data from Flask (filtered by region_id on server; belt-and-suspenders here)
+  const regionId = {{ region_id | tojson }};
+  const allowedNodeIds = new Set({{ allowed_node_ids | tojson }});
+  let nodes = {{ nodes | tojson | safe }};
+  if (regionId) {
+    nodes = nodes.filter((n) => {
+      if (allowedNodeIds.size > 0) {
+        return allowedNodeIds.has(n.node_id);
+      }
+      return n.region_id === regionId;
+    });
+  }
   const mapStatus = document.getElementById('map-status');
-  console.log("Nodes data:", nodes);
+  console.log("Nodes data:", nodes, "region_id:", regionId);
 
   /**
    * Create an always-visible marker (no external icon dependency).

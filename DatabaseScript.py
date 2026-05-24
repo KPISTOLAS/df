@@ -1,8 +1,13 @@
 import os
+import re
+import unicodedata
 import httpx
 import certifi
 from supabase import create_client, Client
-from supabase.lib.client_options import SyncClientOptions
+try:
+    from supabase.lib.client_options import SyncClientOptions
+except ImportError:
+    from supabase.lib.client_options import ClientOptions as SyncClientOptions
 
 # Supabase details (prefer environment variables; keep defaults for local development)
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://pwdiolgrydbgmmpkxlnc.supabase.co").strip()
@@ -57,6 +62,13 @@ except Exception as e:
         print(f"Failed to connect to Supabase: {e}")
         print("Tip: set SUPABASE_CA_BUNDLE to your CA file, or SUPABASE_SSL_VERIFY=false for local dev fallback.")
         raise
+
+
+def _region_id_from_drone_id(drone_id):
+    """Parse FR code from drone_id (e.g. DRONE_FR10_01 -> FR10). Avoids FR1 matching FR10/FR13."""
+    match = re.match(r'^DRONE_(FR\d+)_', drone_id or '')
+    return match.group(1) if match else None
+
 
 # Function to get node information
 def _merge_node_locations(nodes):
@@ -152,31 +164,6 @@ def get_node_history(node_id):
         print(f"Error querying history for node {node_id}: {e}")
         return None
 
-def get_nodes_by_region(region_id):
-    """Get all nodes for a specific region using node_regions mapping."""
-    try:
-        node_regions = supabase.table("node_regions") \
-            .select("node_id") \
-            .eq("region_id", region_id) \
-            .execute()
-
-        node_ids = [row["node_id"] for row in (node_regions.data or [])]
-        if not node_ids:
-            # Fallback: if no mappings exist yet, return all nodes so UI is never empty.
-            response = supabase.table("nodes") \
-                .select("node_id, title, location, description, is_parent") \
-                .execute()
-            return _merge_node_locations(response.data or [])
-
-        response = supabase.table("nodes") \
-            .select("node_id, title, location, description, is_parent") \
-            .in_("node_id", node_ids) \
-            .execute()
-        return _merge_latest_danger_levels(_merge_node_locations(response.data or []))
-    except Exception as e:
-        print(f"Error querying nodes for region {region_id}: {e}")
-        return []
-
 def get_node_region(node_id):
     """Get the region_id for a specific node"""
     response = supabase.table('node_regions') \
@@ -197,62 +184,244 @@ def get_parent_node_reports(parent_id):
         print(f"Error querying Parent_Node_Reports for parent {parent_id}: {e}")
         return []
 
+def _normalize_region_name(region_name):
+    if not region_name:
+        return ""
+    text = unicodedata.normalize("NFC", str(region_name).strip())
+    return " ".join(text.split())
+
+
+REGION_NAME_TO_ID = {
+    "Ανατολικής Μακεδονίας και Θράκης": "FR1",
+    "Κεντρικής Μακεδονίας": "FR2",
+    "Δυτικής Μακεδονίας": "FR3",
+    "Ηπείρου": "FR4",
+    "Θεσσαλίας": "FR5",
+    "Ιονίων Νήσων": "FR6",
+    "Δυτικής Ελλάδας": "FR7",
+    "Στερεάς Ελλάδας": "FR8",
+    "Αττικής": "FR10",
+    "Πελοποννήσου": "FR9",
+    "Βορείου Αιγαίου": "FR11",
+    "Νοτίου Αιγαίου": "FR12",
+    "Κρήτης": "FR13",
+}
+
+
 def get_region_id(region_name):
-    if region_name == "Αρχηγείο / Ε.Σ.Κ.Ε.ΔΙ.Κ.":
+    normalized = _normalize_region_name(region_name)
+    if normalized == "Αρχηγείο / Ε.Σ.Κ.Ε.ΔΙ.Κ.":
         return None  # Headquarters has access to all regions
 
-    region_mapping = {
-        "Ανατολικής Μακεδονίας και Θράκης": "FR1",
-        "Κεντρικής Μακεδονίας": "FR2",
-        "Δυτικής Μακεδονίας": "FR3",
-        "Ηπείρου": "FR4",
-        "Θεσσαλίας": "FR5",
-        "Ιονίων Νήσων": "FR6",
-        "Δυτικής Ελλάδας": "FR7",
-        "Στερεάς Ελλάδας": "FR8",
-        "Αττικής": "FR9",
-        "Πελοποννήσου": "FR10",
-        "Βορείου Αιγαίου": "FR11",
-        "Νοτίου Αιγαίου": "FR12",
-        "Κρήτης": "FR13"
-    }
-    return region_mapping.get(region_name)
+    return REGION_NAME_TO_ID.get(normalized)
 
-def get_nodes_for_dashboard(region_name):
+
+def _node_ids_for_region(region_id):
+    if not region_id:
+        return set()
+    response = (
+        supabase.table("node_regions")
+        .select("node_id")
+        .eq("region_id", region_id)
+        .execute()
+    )
+    return {row["node_id"] for row in (response.data or []) if row.get("node_id")}
+
+
+def get_nodes_by_region(region_id):
+    """Get nodes strictly mapped to region_id in node_regions."""
     try:
-        if region_name == 'Αρχηγείο / Ε.Σ.Κ.Ε.ΔΙ.Κ.':
-            # For headquarters, get all nodes without region filtering
-            response = supabase.table("nodes") \
-                .select("node_id, title, location, description, is_parent") \
+        allowed_ids = _node_ids_for_region(region_id)
+        if not allowed_ids:
+            return []
+
+        response = (
+            supabase.table("nodes")
+            .select("node_id, title, location, description, is_parent")
+            .in_("node_id", list(allowed_ids))
+            .execute()
+        )
+        nodes = [
+            node for node in (response.data or [])
+            if node.get("node_id") in allowed_ids
+        ]
+        for node in nodes:
+            node["region_id"] = region_id
+        return _merge_latest_danger_levels(_merge_node_locations(nodes))
+    except Exception as e:
+        print(f"Error querying nodes for region {region_id}: {e}")
+        return []
+
+
+def get_nodes_for_dashboard(region_name, region_id=None):
+    """Load dashboard nodes. Prefer explicit region_id (session) over name lookup."""
+    try:
+        normalized = _normalize_region_name(region_name)
+        if normalized == "Αρχηγείο / Ε.Σ.Κ.Ε.ΔΙ.Κ.":
+            response = (
+                supabase.table("nodes")
+                .select("node_id, title, location, description, is_parent")
                 .execute()
-        else:
-            # For regional offices, filter by region
-            region_id = get_region_id(region_name)
-            if not region_id:
-                return None
+            )
+            nodes = response.data or []
+            for node in nodes:
+                node["region_id"] = get_node_region(node.get("node_id"))
+            return _merge_latest_danger_levels(_merge_node_locations(nodes))
 
-            # First get all node_ids for this region from node_regions table
-            node_regions = supabase.table('node_regions') \
-                .select('node_id') \
-                .eq('region_id', region_id) \
-                .execute()
-
-            node_ids = [nr['node_id'] for nr in node_regions.data] if node_regions.data else []
-
-            if not node_ids:
-                # Fallback: region has no mappings yet, show all nodes.
-                response = supabase.table("nodes") \
-                    .select("node_id, title, location, description, is_parent") \
-                    .execute()
-                return _merge_latest_danger_levels(_merge_node_locations(response.data or []))
-
-            # Then get all node details for these node_ids
-            response = supabase.table("nodes") \
-                .select("node_id, title, location, description, is_parent") \
-                .in_("node_id", node_ids) \
-                .execute()
-
-        return _merge_latest_danger_levels(_merge_node_locations(response.data or []))
+        resolved_id = region_id or get_region_id(normalized)
+        if not resolved_id:
+            return []
+        return get_nodes_by_region(resolved_id)
     except Exception as e:
         print(f"Error loading nodes for dashboard: {str(e)}")
-        return None
+        return []
+
+
+def _normalize_drone_row(drone):
+    """Coerce DB types so templates and JSON serialization never fail."""
+    if not drone:
+        return drone
+    row = dict(drone)
+    for key in ("home_lat", "home_lng", "roam_radius_km"):
+        if key in row and row[key] is not None:
+            try:
+                row[key] = float(row[key])
+            except (TypeError, ValueError):
+                row[key] = None
+    for key, val in list(row.items()):
+        if hasattr(val, "isoformat"):
+            row[key] = val.isoformat()
+    return row
+
+
+def _normalize_drone_rows(drones):
+    return [_normalize_drone_row(d) for d in (drones or [])]
+
+
+def _get_mock_drones():
+    return [
+        {"drone_id": "DRONE_FR1_01", "name": "ΣΜΗΕΑ Αμυγδαλεώνας", "model": "DJI Matrice 30T",
+         "operational_status": "active", "home_lat": 40.97, "home_lng": 24.37, "roam_radius_km": 2.5},
+        {"drone_id": "DRONE_FR1_02", "name": "ΣΜΗΕΑ Χρυσούπολη", "model": "Autel EVO Max",
+         "operational_status": "active", "home_lat": 40.995, "home_lng": 24.7, "roam_radius_km": 2.0},
+        {"drone_id": "DRONE_FR1_03", "name": "ΣΜΗΕΑ Καβάλας", "model": "DJI Mavic 3T",
+         "operational_status": "active", "home_lat": 40.94, "home_lng": 24.41, "roam_radius_km": 1.8},
+    ]
+
+
+_DRONE_SELECT = "drone_id, name, model, operational_status, home_lat, home_lng, roam_radius_km"
+
+
+def _fetch_drones_by_ids(drone_ids):
+    if not drone_ids:
+        return []
+    response = supabase.table("drones").select(_DRONE_SELECT).in_("drone_id", drone_ids).execute()
+    return _normalize_drone_rows(response.data or [])
+
+
+def _fetch_drones_by_region_id(region_id):
+    """Load drones for a region from drone_regions, or by drone_id prefix if mapping missing."""
+    drone_regions = supabase.table("drone_regions").select("drone_id").eq("region_id", region_id).execute()
+    drone_ids = [row["drone_id"] for row in (drone_regions.data or [])]
+    drones = _fetch_drones_by_ids(drone_ids)
+    if drones:
+        return drones
+
+    all_response = supabase.table("drones").select(_DRONE_SELECT).execute()
+    filtered = [
+        row for row in (all_response.data or [])
+        if _region_id_from_drone_id(row.get("drone_id")) == region_id
+    ]
+    if filtered:
+        return _normalize_drone_rows(filtered)
+
+    return _get_mock_drones_for_region(region_id)
+
+
+def get_drones_for_region(region_name):
+    try:
+        if region_name == "Αρχηγείο / Ε.Σ.Κ.Ε.ΔΙ.Κ.":
+            response = supabase.table("drones").select(_DRONE_SELECT).execute()
+            drones = _normalize_drone_rows(response.data or [])
+            return drones if drones else _get_mock_drones_for_region(None)
+
+        region_id = get_region_id(region_name)
+        if not region_id:
+            return []
+        return _fetch_drones_by_region_id(region_id)
+    except Exception as e:
+        print(f"Error loading drones: {e}")
+        region_id = get_region_id(region_name)
+        if not region_id:
+            return []
+        return _get_mock_drones_for_region(region_id)
+
+
+def _get_mock_drones_for_region(region_id):
+    """Return mock drones filtered by region when DB table is missing or empty."""
+    all_mocks = {
+        "FR1": [
+            {"drone_id": "DRONE_FR1_01", "name": "ΣΜΗΕΑ Αμυγδαλεώνας", "model": "DJI Matrice 30T",
+             "operational_status": "active", "home_lat": 40.97, "home_lng": 24.37, "roam_radius_km": 2.5},
+            {"drone_id": "DRONE_FR1_02", "name": "ΣΜΗΕΑ Χρυσούπολη", "model": "Autel EVO Max",
+             "operational_status": "active", "home_lat": 40.995, "home_lng": 24.7, "roam_radius_km": 2.0},
+            {"drone_id": "DRONE_FR1_03", "name": "ΣΜΗΕΑ Καβάλας", "model": "DJI Mavic 3T",
+             "operational_status": "active", "home_lat": 40.94, "home_lng": 24.41, "roam_radius_km": 1.8},
+        ],
+        "FR2": [
+            {"drone_id": "DRONE_FR2_01", "name": "ΣΜΗΕΑ Θεσσαλονίκης", "model": "DJI Matrice 30T",
+             "operational_status": "active", "home_lat": 40.64, "home_lng": 22.94, "roam_radius_km": 3.0},
+            {"drone_id": "DRONE_FR2_02", "name": "ΣΜΗΕΑ Χαλκιδικής", "model": "Autel EVO Max",
+             "operational_status": "active", "home_lat": 40.32, "home_lng": 23.45, "roam_radius_km": 2.5},
+        ],
+        "FR9": [
+            {"drone_id": "DRONE_FR9_01", "name": "ΣΜΗΕΑ Πάτρας", "model": "DJI Matrice 30T",
+             "operational_status": "active", "home_lat": 38.25, "home_lng": 21.73, "roam_radius_km": 2.5},
+            {"drone_id": "DRONE_FR9_02", "name": "ΣΜΗΕΑ Τρίπολης", "model": "Autel EVO Max",
+             "operational_status": "active", "home_lat": 37.51, "home_lng": 22.38, "roam_radius_km": 2.0},
+        ],
+        "FR10": [
+            {"drone_id": "DRONE_FR10_01", "name": "ΣΜΗΕΑ Αθηνών", "model": "DJI Matrice 30T",
+             "operational_status": "active", "home_lat": 37.98, "home_lng": 23.73, "roam_radius_km": 3.5},
+            {"drone_id": "DRONE_FR10_02", "name": "ΣΜΗΕΑ Πειραιά", "model": "DJI Mavic 3T",
+             "operational_status": "active", "home_lat": 37.94, "home_lng": 23.65, "roam_radius_km": 2.0},
+            {"drone_id": "DRONE_FR10_03", "name": "ΣΜΗΕΑ Μαραθώνα", "model": "Autel EVO Max",
+             "operational_status": "active", "home_lat": 38.15, "home_lng": 23.96, "roam_radius_km": 2.5},
+        ],
+        "FR13": [
+            {"drone_id": "DRONE_FR13_01", "name": "ΣΜΗΕΑ Ηρακλείου", "model": "DJI Matrice 30T",
+             "operational_status": "active", "home_lat": 35.34, "home_lng": 25.14, "roam_radius_km": 2.5},
+        ],
+    }
+    if region_id is None:
+        return [d for drones in all_mocks.values() for d in drones]
+    return all_mocks.get(region_id, [])
+
+
+def get_drone_info(drone_id):
+    try:
+        response = supabase.table("drones").select(
+            "drone_id, name, model, operational_status, home_lat, home_lng, roam_radius_km"
+        ).eq("drone_id", drone_id).execute()
+        if response.data:
+            return _normalize_drone_row(response.data[0])
+    except Exception as e:
+        print(f"Error querying drone {drone_id}: {e}")
+    for d in _get_mock_drones_for_region(None):
+        if d["drone_id"] == drone_id:
+            return d
+    return None
+
+
+def get_drone_region(drone_id):
+    parsed = _region_id_from_drone_id(drone_id)
+    try:
+        response = supabase.table("drone_regions").select("region_id").eq("drone_id", drone_id).execute()
+        if response.data:
+            db_region = response.data[0]["region_id"]
+            if parsed and db_region != parsed:
+                return parsed
+            return db_region
+    except Exception as e:
+        print(f"Error getting drone region: {e}")
+    return parsed

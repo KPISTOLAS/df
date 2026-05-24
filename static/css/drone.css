@@ -1,0 +1,278 @@
+body {
+  margin: 0;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: #f5f8fb;
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
+header {
+  background: linear-gradient(135deg, #2c3e50 0%, #34495e 100%);
+  color: #ecf0f1;
+  padding: 15px 20px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+}
+
+header h1 {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+nav a {
+  color: #ecf0f1;
+  text-decoration: none;
+  margin-left: 12px;
+  padding: 8px 14px;
+  border-radius: 20px;
+  font-weight: 500;
+}
+
+nav a:hover { background: rgba(52, 152, 219, 0.2); }
+nav a.active { background: #3498db; color: white; }
+
+.main-content {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 260px 1fr 300px;
+  gap: 16px;
+  padding: 16px;
+  overflow: hidden;
+}
+
+.drone-list {
+  background: white;
+  border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.drone-list-header {
+  padding: 16px;
+  border-bottom: 2px solid #ecf0f1;
+  background: #f8f9fa;
+}
+
+.drone-list-header h2 {
+  margin: 0 0 6px 0;
+  font-size: 1rem;
+  color: #2c3e50;
+}
+
+.region-label {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #7f8c8d;
+}
+
+#drone-list-items {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px;
+}
+
+.drone-list-item {
+  padding: 12px;
+  margin-bottom: 6px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #bdc3c7;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.drone-list-item:hover {
+  transform: translateX(3px);
+  box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+}
+
+.drone-list-item.selected {
+  border-left-color: #3498db;
+  background: #ebf5fb;
+}
+
+.drone-list-item-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: #2c3e50;
+  margin-bottom: 4px;
+}
+
+.drone-list-item-header i { color: #3498db; }
+
+.drone-list-item-meta {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  color: #7f8c8d;
+  margin-bottom: 6px;
+}
+
+.status-active {
+  background: #d5f5e3;
+  color: #27ae60;
+  padding: 2px 6px;
+  border-radius: 8px;
+  font-size: 0.7rem;
+}
+
+.drone-list-item-stats {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.8rem;
+  color: #555;
+}
+
+.drone-list-item-stats i { color: #3498db; margin-right: 4px; }
+
+.fire-value.fire-alert { color: #e74c3c; font-weight: bold; }
+
+.map-container {
+  background: white;
+  border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+  overflow: hidden;
+  min-height: 0;
+}
+
+#map { height: 100%; width: 100%; }
+
+.telemetry-panel {
+  background: white;
+  padding: 20px;
+  border-radius: 10px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+  overflow-y: auto;
+}
+
+.telemetry-header {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 2px solid #ecf0f1;
+}
+
+.telemetry-header h2 {
+  margin: 0;
+  font-size: 1.1rem;
+  color: #2c3e50;
+}
+
+.telemetry-subtitle {
+  margin: 4px 0 0 0;
+  font-size: 0.85rem;
+  color: #7f8c8d;
+}
+
+.telemetry-item {
+  margin-bottom: 14px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 8px;
+  border-left: 4px solid #3498db;
+}
+
+.telemetry-item h3 {
+  margin: 0 0 6px 0;
+  font-size: 0.9rem;
+  color: #2c3e50;
+}
+
+.telemetry-item p {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 500;
+  color: #34495e;
+}
+
+.fire-alert {
+  color: #e74c3c !important;
+  animation: blink 1s infinite;
+  font-weight: bold !important;
+}
+
+@keyframes blink { 50% { opacity: 0.5; } }
+
+/* Leaflet image markers */
+.drone-map-icon img {
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.45));
+  transition: transform 0.15s ease;
+}
+
+.drone-map-icon--selected img {
+  transform: scale(1.12);
+  filter: drop-shadow(0 3px 8px rgba(52, 152, 219, 0.7));
+}
+
+.leaflet-marker-icon.drone-map-icon {
+  background: transparent;
+  border: none;
+}
+
+/* Fallback div icon if SVG fails to load */
+.drone-marker {
+  background: #e67e22;
+  border-radius: 50%;
+  border: 3px solid white;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 18px;
+}
+
+.drone-marker.selected {
+  background: #3498db;
+  border-color: #2980b9;
+  box-shadow: 0 4px 12px rgba(52, 152, 219, 0.6);
+}
+
+.drone-marker-fallback {
+  font-size: 1.1rem;
+  line-height: 1;
+  transform: rotate(-45deg);
+}
+
+/* List / header drone pictogram */
+.drone-icon-inline {
+  display: inline-block;
+  width: 1.1em;
+  height: 1.1em;
+  vertical-align: -0.15em;
+  background: url('../img/drone-marker.svg') center / contain no-repeat;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 30px 16px;
+  color: #7f8c8d;
+}
+
+.empty-state .drone-icon-inline {
+  display: block;
+  width: 3rem;
+  height: 3rem;
+  margin: 0 auto 10px;
+  opacity: 0.45;
+}
+
+.drone-list-item-header .drone-icon-inline {
+  flex-shrink: 0;
+  margin-right: 6px;
+}
+
+@media (max-width: 1000px) {
+  .main-content {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto 280px auto;
+    overflow-y: auto;
+  }
+  .drone-list { max-height: 200px; }
+}
