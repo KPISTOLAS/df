@@ -1,6 +1,7 @@
 import os
 import re
 import unicodedata
+from datetime import datetime, timezone
 import httpx
 import certifi
 from supabase import create_client, Client
@@ -425,3 +426,173 @@ def get_drone_region(drone_id):
     except Exception as e:
         print(f"Error getting drone region: {e}")
     return parsed
+
+
+# ---------------------------------------------------------------------------
+# Admin panel statistics
+# ---------------------------------------------------------------------------
+
+# Tables the dashboard relies on. Used for the database health check.
+ADMIN_HEALTH_TABLES = [
+    "nodes",
+    "node_locations",
+    "node_regions",
+    "node_hierarchy",
+    "sensor_readings",
+    "parent_node_reports",
+    "drones",
+    "drone_regions",
+    "fire_regions",
+]
+
+
+def _table_health(table):
+    """Return a health entry for a single table: status + row count."""
+    try:
+        response = supabase.table(table).select("*", count="exact").limit(1).execute()
+        count = response.count if response.count is not None else len(response.data or [])
+        return {
+            "table": table,
+            "status": "ok" if count and count > 0 else "empty",
+            "count": count or 0,
+            "error": None,
+        }
+    except Exception as e:
+        return {"table": table, "status": "error", "count": None, "error": str(e)}
+
+
+def get_database_health():
+    """Probe each core table and summarise overall database health."""
+    tables = [_table_health(t) for t in ADMIN_HEALTH_TABLES]
+    has_error = any(t["status"] == "error" for t in tables)
+    has_empty = any(t["status"] == "empty" for t in tables)
+
+    if has_error:
+        overall = "down" if all(t["status"] == "error" for t in tables) else "degraded"
+    elif has_empty:
+        overall = "degraded"
+    else:
+        overall = "healthy"
+
+    return {"overall": overall, "tables": tables}
+
+
+def get_node_message_status():
+    """
+    Report which nodes are sending sensor data and which are silent.
+    "Silent" nodes have zero sensor_readings -> treated as missing messages.
+    """
+    try:
+        nodes_resp = supabase.table("nodes").select("node_id, title, location, is_parent").execute()
+        all_nodes = nodes_resp.data or []
+
+        readings_resp = supabase.table("sensor_readings").select("node_id, timestamp").execute()
+        readings = readings_resp.data or []
+
+        latest_by_node = {}
+        for row in readings:
+            node_id = row.get("node_id")
+            ts = row.get("timestamp")
+            if not node_id:
+                continue
+            if node_id not in latest_by_node or (ts or "") > (latest_by_node[node_id] or ""):
+                latest_by_node[node_id] = ts
+
+        reporting, silent = [], []
+        for node in all_nodes:
+            node_id = node.get("node_id")
+            entry = {
+                "node_id": node_id,
+                "title": node.get("title"),
+                "location": node.get("location"),
+                "is_parent": node.get("is_parent"),
+                "last_reading_at": latest_by_node.get(node_id),
+            }
+            if node_id in latest_by_node:
+                reporting.append(entry)
+            else:
+                silent.append(entry)
+
+        latest_overall = max(latest_by_node.values(), default=None) if latest_by_node else None
+
+        return {
+            "total_nodes": len(all_nodes),
+            "reporting_count": len(reporting),
+            "silent_count": len(silent),
+            "total_readings": len(readings),
+            "latest_reading_at": latest_overall,
+            "silent_nodes": sorted(silent, key=lambda n: n["node_id"] or "")[:50],
+        }
+    except Exception as e:
+        print(f"Error computing node message status: {e}")
+        return {
+            "total_nodes": 0,
+            "reporting_count": 0,
+            "silent_count": 0,
+            "total_readings": 0,
+            "latest_reading_at": None,
+            "silent_nodes": [],
+            "error": str(e),
+        }
+
+
+def get_parent_report_status(issue_limit=25):
+    """
+    Summarise parent_node_reports: how many child messages were missing
+    (data_received = false) or invalid (data_valid = false).
+    """
+    try:
+        resp = (
+            supabase.table("parent_node_reports")
+            .select("report_id, parent_id, child_id, timestamp, data_received, data_valid, status_message")
+            .order("timestamp", desc=True)
+            .execute()
+        )
+        reports = resp.data or []
+
+        missing = [r for r in reports if r.get("data_received") is False]
+        invalid = [r for r in reports if r.get("data_received") is not False and r.get("data_valid") is False]
+        ok = [r for r in reports if r.get("data_received") is not False and r.get("data_valid") is not False]
+
+        issues = [r for r in reports if r.get("data_received") is False or r.get("data_valid") is False]
+
+        return {
+            "total": len(reports),
+            "missing_count": len(missing),
+            "invalid_count": len(invalid),
+            "ok_count": len(ok),
+            "recent_issues": issues[:issue_limit],
+        }
+    except Exception as e:
+        print(f"Error computing parent report status: {e}")
+        return {
+            "total": 0,
+            "missing_count": 0,
+            "invalid_count": 0,
+            "ok_count": 0,
+            "recent_issues": [],
+            "error": str(e),
+        }
+
+
+def get_admin_stats():
+    """Aggregate all statistics shown on the admin panel."""
+    health = get_database_health()
+    nodes = get_node_message_status()
+    parent_reports = get_parent_report_status()
+
+    table_counts = {t["table"]: t["count"] for t in health["tables"]}
+
+    return {
+        "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "database": health,
+        "totals": {
+            "nodes": table_counts.get("nodes") or 0,
+            "drones": table_counts.get("drones") or 0,
+            "regions": table_counts.get("fire_regions") or 0,
+            "sensor_readings": table_counts.get("sensor_readings") or 0,
+            "parent_reports": table_counts.get("parent_node_reports") or 0,
+        },
+        "node_messages": nodes,
+        "parent_reports": parent_reports,
+    }

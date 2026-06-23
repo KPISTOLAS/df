@@ -1,3 +1,4 @@
+import os
 import json
 import traceback
 from flask import Flask, render_template, jsonify, abort, redirect, url_for, request, session, flash
@@ -5,6 +6,7 @@ from DatabaseScript import (
     get_node_info, get_node_history, get_node_region,
     get_parent_node_reports, get_nodes_for_dashboard, get_region_id, get_nodes_by_region,
     get_drones_for_region, get_drone_info, get_drone_region,
+    get_admin_stats,
 )
 from drone_sim import step_all, snapshot
 
@@ -15,6 +17,9 @@ app.config['SECRET_KEY'] = '123123123'
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 app.jinja_env.auto_reload = True
+
+# Admin panel access code (override with ADMIN_PANEL_CODE in production)
+ADMIN_CODE = os.getenv('ADMIN_PANEL_CODE', '123')
 
 
 def _validate_drone_access(drone_id):
@@ -69,6 +74,41 @@ def set_region():
 def logout():
     session.clear()
     return redirect(url_for('login'))
+
+
+@app.route('/admin_login', methods=['POST'])
+def admin_login():
+    code = (request.form.get('admin_code') or '').strip()
+    if code != ADMIN_CODE:
+        flash('Λάθος κωδικός διαχειριστή.')
+        return redirect(url_for('login'))
+    session.clear()
+    session['is_admin'] = True
+    session.modified = True
+    return redirect(url_for('admin'))
+
+
+@app.route('/admin')
+def admin():
+    if not session.get('is_admin'):
+        return redirect(url_for('login'))
+    try:
+        stats = get_admin_stats()
+        return render_template('admin.html', stats=stats)
+    except Exception as e:
+        app.logger.error(f"Error loading admin panel: {e}\n{traceback.format_exc()}")
+        abort(500)
+
+
+@app.route('/api/admin/stats')
+def api_admin_stats():
+    if not session.get('is_admin'):
+        return jsonify({"error": "unauthorized"}), 401
+    try:
+        return jsonify(get_admin_stats())
+    except Exception as e:
+        app.logger.error(f"/api/admin/stats failed: {e}")
+        return jsonify({"error": "Failed to load stats", "details": str(e)}), 500
 
 
 @app.route('/dashboard')
