@@ -76,6 +76,43 @@
       color: #b71c1c;
       border: 1px solid #f5c6cb;
     }
+    .admin-access {
+      margin-top: 24px;
+      border-top: 1px solid #e6ebf0;
+      padding-top: 16px;
+    }
+    .admin-access summary {
+      cursor: pointer;
+      font-weight: bold;
+      color: #2c3e50;
+      list-style: none;
+      user-select: none;
+    }
+    .admin-access summary::-webkit-details-marker { display: none; }
+    .admin-access summary::before {
+      content: "\2699\00a0";
+    }
+    .admin-access .admin-fields {
+      margin-top: 14px;
+      display: flex;
+      gap: 10px;
+    }
+    .admin-access input[type="password"] {
+      flex: 1;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 16px;
+    }
+    .admin-access button {
+      width: auto;
+      padding: 10px 18px;
+    }
+    .admin-hint {
+      margin-top: 8px;
+      font-size: 0.85rem;
+      color: #7f8c8d;
+    }
   </style>
 </head>
 <body>
@@ -114,6 +151,17 @@
       </div>
       <button type="submit">Επιβεβαίωση</button>
     </form>
+
+    <details class="admin-access">
+      <summary>Πρόσβαση Διαχειριστή</summary>
+      <form action="{{ url_for('admin_login') }}" method="post">
+        <div class="admin-fields">
+          <input type="password" name="admin_code" placeholder="Κωδικός διαχειριστή" required autocomplete="off" />
+          <button type="submit">Είσοδος</button>
+        </div>
+        <p class="admin-hint">Εισάγετε τον κωδικό διαχειριστή για να δείτε τα στατιστικά του συστήματος.</p>
+      </form>
+    </details>
   </div>
 </body>
 </html>

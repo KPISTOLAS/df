@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Πίνακας Διαχειριστή - Στατιστικά Συστήματος</title>
+  <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f0f4f8;
+      margin: 0;
+      padding: 0 0 40px;
+      color: #2c3e50;
+    }
+    header {
+      background: #2c3e50;
+      color: #fff;
+      padding: 18px 30px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    header h1 { margin: 0; font-size: 1.4rem; }
+    header .meta { font-size: 0.85rem; color: #bdc3c7; }
+    .actions a {
+      display: inline-block;
+      padding: 8px 14px;
+      border-radius: 5px;
+      text-decoration: none;
+      font-weight: bold;
+      margin-left: 8px;
+    }
+    .actions .refresh { background: #3498db; color: #fff; }
+    .actions .refresh:hover { background: #2980b9; }
+    .actions .logout { background: #e74c3c; color: #fff; }
+    .actions .logout:hover { background: #c0392b; }
+    main { padding: 24px 30px; max-width: 1100px; margin: 0 auto; }
+    section { margin-bottom: 32px; }
+    h2 {
+      font-size: 1.1rem;
+      border-bottom: 2px solid #e6ebf0;
+      padding-bottom: 8px;
+      margin-bottom: 16px;
+    }
+    .cards { display: flex; flex-wrap: wrap; gap: 16px; }
+    .card {
+      background: #fff;
+      border-radius: 8px;
+      padding: 18px 20px;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+      flex: 1 1 150px;
+      min-width: 150px;
+    }
+    .card .value { font-size: 1.8rem; font-weight: bold; }
+    .card .label { color: #7f8c8d; font-size: 0.85rem; margin-top: 4px; }
+    .card.warn .value { color: #e67e22; }
+    .card.bad .value { color: #e74c3c; }
+    .card.good .value { color: #27ae60; }
+    .status-pill {
+      display: inline-block;
+      padding: 4px 12px;
+      border-radius: 999px;
+      font-weight: bold;
+      font-size: 0.95rem;
+    }
+    .status-healthy { background: #e8f8f0; color: #1e8449; }
+    .status-degraded { background: #fef5e7; color: #b9770e; }
+    .status-down { background: #fdecea; color: #b71c1c; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #fff;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.07);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid #eee; font-size: 0.9rem; }
+    th { background: #34495e; color: #fff; }
+    tr:nth-child(even) td { background: #f9fbfc; }
+    .tag { padding: 2px 8px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; }
+    .tag-ok { background: #e8f8f0; color: #1e8449; }
+    .tag-empty { background: #fef5e7; color: #b9770e; }
+    .tag-error { background: #fdecea; color: #b71c1c; }
+    .tag-missing { background: #fdecea; color: #b71c1c; }
+    .tag-invalid { background: #fef5e7; color: #b9770e; }
+    .muted { color: #7f8c8d; }
+    .empty-note { color: #7f8c8d; font-style: italic; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Πίνακας Διαχειριστή</h1>
+      <div class="meta">Δημιουργήθηκε: {{ stats.generated_at }}</div>
+    </div>
+    <div class="actions">
+      <a class="refresh" href="{{ url_for('admin') }}">Ανανέωση</a>
+      <a class="logout" href="{{ url_for('logout') }}">Αποσύνδεση</a>
+    </div>
+  </header>
+
+  <main>
+    <!-- Overview -->
+    <section>
+      <h2>Επισκόπηση</h2>
+      <div class="cards">
+        <div class="card">
+          <div class="value">{{ stats.totals.nodes }}</div>
+          <div class="label">Κόμβοι</div>
+        </div>
+        <div class="card">
+          <div class="value">{{ stats.totals.drones }}</div>
+          <div class="label">ΣΜΗΕΑ (Drones)</div>
+        </div>
+        <div class="card">
+          <div class="value">{{ stats.totals.regions }}</div>
+          <div class="label">Περιφέρειες</div>
+        </div>
+        <div class="card">
+          <div class="value">{{ stats.totals.sensor_readings }}</div>
+          <div class="label">Μετρήσεις αισθητήρων</div>
+        </div>
+        <div class="card">
+          <div class="value">{{ stats.totals.parent_reports }}</div>
+          <div class="label">Αναφορές κόμβων</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Database health -->
+    <section>
+      <h2>Υγεία Βάσης Δεδομένων &mdash;
+        <span class="status-pill status-{{ stats.database.overall }}">
+          {% if stats.database.overall == 'healthy' %}Υγιής
+          {% elif stats.database.overall == 'degraded' %}Υποβαθμισμένη
+          {% else %}Εκτός λειτουργίας{% endif %}
+        </span>
+      </h2>
+      <table>
+        <tr>
+          <th>Πίνακας</th>
+          <th>Κατάσταση</th>
+          <th>Εγγραφές</th>
+          <th>Σφάλμα</th>
+        </tr>
+        {% for t in stats.database.tables %}
+        <tr>
+          <td>{{ t.table }}</td>
+          <td>
+            {% if t.status == 'ok' %}<span class="tag tag-ok">OK</span>
+            {% elif t.status == 'empty' %}<span class="tag tag-empty">Κενός</span>
+            {% else %}<span class="tag tag-error">Σφάλμα</span>{% endif %}
+          </td>
+          <td>{{ t.count if t.count is not none else '-' }}</td>
+          <td class="muted">{{ t.error or '' }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    </section>
+
+    <!-- Node messages -->
+    <section>
+      <h2>Μηνύματα Κόμβων</h2>
+      <div class="cards">
+        <div class="card">
+          <div class="value">{{ stats.node_messages.total_nodes }}</div>
+          <div class="label">Σύνολο κόμβων</div>
+        </div>
+        <div class="card good">
+          <div class="value">{{ stats.node_messages.reporting_count }}</div>
+          <div class="label">Κόμβοι που αναφέρουν</div>
+        </div>
+        <div class="card {{ 'bad' if stats.node_messages.silent_count else 'good' }}">
+          <div class="value">{{ stats.node_messages.silent_count }}</div>
+          <div class="label">Σιωπηλοί κόμβοι (χωρίς μηνύματα)</div>
+        </div>
+        <div class="card">
+          <div class="value">{{ stats.node_messages.latest_reading_at or '—' }}</div>
+          <div class="label">Τελευταία μέτρηση</div>
+        </div>
+      </div>
+
+      <h3 style="margin-top:20px; font-size:1rem;">Σιωπηλοί κόμβοι (δεν έχουν στείλει δεδομένα)</h3>
+      {% if stats.node_messages.silent_nodes %}
+      <table>
+        <tr>
+          <th>ID Κόμβου</th>
+          <th>Τίτλος</th>
+          <th>Τοποθεσία</th>
+          <th>Τύπος</th>
+        </tr>
+        {% for n in stats.node_messages.silent_nodes %}
+        <tr>
+          <td>{{ n.node_id }}</td>
+          <td>{{ n.title or '—' }}</td>
+          <td>{{ n.location or '—' }}</td>
+          <td>{{ 'Γονικός' if n.is_parent else 'Θυγατρικός' }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% if stats.node_messages.silent_count > stats.node_messages.silent_nodes|length %}
+      <p class="muted">Εμφανίζονται οι πρώτοι {{ stats.node_messages.silent_nodes|length }} από {{ stats.node_messages.silent_count }}.</p>
+      {% endif %}
+      {% else %}
+      <p class="empty-note">Όλοι οι κόμβοι έχουν στείλει τουλάχιστον μία μέτρηση.</p>
+      {% endif %}
+    </section>
+
+    <!-- Parent node reports -->
+    <section>
+      <h2>Αναφορές Γονικών Κόμβων</h2>
+      <div class="cards">
+        <div class="card">
+          <div class="value">{{ stats.parent_reports.total }}</div>
+          <div class="label">Σύνολο αναφορών</div>
+        </div>
+        <div class="card good">
+          <div class="value">{{ stats.parent_reports.ok_count }}</div>
+          <div class="label">Επιτυχείς</div>
+        </div>
+        <div class="card {{ 'bad' if stats.parent_reports.missing_count else 'good' }}">
+          <div class="value">{{ stats.parent_reports.missing_count }}</div>
+          <div class="label">Ελλιπή μηνύματα (δεν ελήφθησαν)</div>
+        </div>
+        <div class="card {{ 'warn' if stats.parent_reports.invalid_count else 'good' }}">
+          <div class="value">{{ stats.parent_reports.invalid_count }}</div>
+          <div class="label">Μη έγκυρα δεδομένα</div>
+        </div>
+      </div>
+
+      <h3 style="margin-top:20px; font-size:1rem;">Πρόσφατα προβλήματα</h3>
+      {% if stats.parent_reports.recent_issues %}
+      <table>
+        <tr>
+          <th>Γονικός</th>
+          <th>Θυγατρικός</th>
+          <th>Χρονοσφραγίδα</th>
+          <th>Κατάσταση</th>
+          <th>Μήνυμα</th>
+        </tr>
+        {% for r in stats.parent_reports.recent_issues %}
+        <tr>
+          <td>{{ r.parent_id }}</td>
+          <td>{{ r.child_id }}</td>
+          <td>{{ r.timestamp }}</td>
+          <td>
+            {% if r.data_received is false %}<span class="tag tag-missing">Ελλιπές</span>
+            {% elif r.data_valid is false %}<span class="tag tag-invalid">Μη έγκυρο</span>{% endif %}
+          </td>
+          <td class="muted">{{ r.status_message or '—' }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+      {% else %}
+      <p class="empty-note">Δεν υπάρχουν προβληματικές αναφορές.</p>
+      {% endif %}
+    </section>
+  </main>
+</body>
+</html>
