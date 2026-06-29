@@ -1,5 +1,7 @@
 import os
 import json
+import time
+import secrets
 import traceback
 from flask import Flask, render_template, jsonify, abort, redirect, url_for, request, session, flash
 from DatabaseScript import (
@@ -10,16 +12,105 @@ from DatabaseScript import (
 )
 from drone_sim import step_all, snapshot
 
+
+def _env_flag(name, default=False):
+    return os.getenv(name, str(default)).strip().lower() in ('1', 'true', 'yes', 'on')
+
+
 app = Flask(__name__)
 
-# Set a fixed secret key for development (use environment variable in production)
-app.config['SECRET_KEY'] = '123123123'
+# Secret key: override with SECRET_KEY in production. Falls back to a per-process
+# random key if neither SECRET_KEY nor the legacy dev default is desired.
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', '123123123')
 app.config['TEMPLATES_AUTO_RELOAD'] = True
 app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 app.jinja_env.auto_reload = True
 
+# Session cookie hardening. SESSION_COOKIE_SECURE defaults to false so local HTTP
+# development works; set SESSION_COOKIE_SECURE=true (and FORCE_HTTPS=true) in
+# production (e.g. on PythonAnywhere, which serves over HTTPS).
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE='Lax',
+    SESSION_COOKIE_SECURE=_env_flag('SESSION_COOKIE_SECURE', False),
+)
+
 # Admin panel access code (override with ADMIN_PANEL_CODE in production)
 ADMIN_CODE = os.getenv('ADMIN_PANEL_CODE', '123')
+
+# Brute-force protection for the admin login.
+ADMIN_MAX_ATTEMPTS = int(os.getenv('ADMIN_MAX_ATTEMPTS', '5'))
+ADMIN_LOCKOUT_SECONDS = int(os.getenv('ADMIN_LOCKOUT_SECONDS', '300'))
+_admin_login_attempts = {}  # client_ip -> {count, first, locked_until}
+
+# Content Security Policy. Allows the third-party resources the app actually uses
+# (Leaflet from unpkg, Font Awesome from cdnjs, OpenStreetMap tiles) while blocking
+# arbitrary external scripts/connections and framing of the site.
+CONTENT_SECURITY_POLICY = "; ".join([
+    "default-src 'self'",
+    "script-src 'self' 'unsafe-inline' https://unpkg.com",
+    "style-src 'self' 'unsafe-inline' https://unpkg.com https://cdnjs.cloudflare.com",
+    "img-src 'self' data: https://*.tile.openstreetmap.org https://unpkg.com",
+    "font-src 'self' https://cdnjs.cloudflare.com",
+    "connect-src 'self'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+])
+
+
+def _client_ip():
+    forwarded = request.headers.get('X-Forwarded-For', '')
+    if forwarded:
+        return forwarded.split(',')[0].strip()
+    return request.remote_addr or 'unknown'
+
+
+def _request_is_https():
+    return request.is_secure or request.headers.get('X-Forwarded-Proto', '') == 'https'
+
+
+# ---------------------------------------------------------------------------
+# CSRF protection (no external dependency)
+# ---------------------------------------------------------------------------
+def generate_csrf_token():
+    if '_csrf_token' not in session:
+        session['_csrf_token'] = secrets.token_hex(32)
+    return session['_csrf_token']
+
+
+@app.context_processor
+def _inject_csrf_token():
+    return {'csrf_token': generate_csrf_token}
+
+
+@app.before_request
+def _force_https():
+    """Optional redirect to HTTPS (enable with FORCE_HTTPS=true in production)."""
+    if _env_flag('FORCE_HTTPS', False) and not _request_is_https():
+        if request.url.startswith('http://'):
+            return redirect(request.url.replace('http://', 'https://', 1), code=301)
+
+
+@app.before_request
+def _csrf_protect():
+    if request.method == 'POST':
+        expected = session.get('_csrf_token')
+        provided = request.form.get('csrf_token', '')
+        if not expected or not provided or not secrets.compare_digest(str(expected), str(provided)):
+            abort(400, description='Invalid or missing CSRF token')
+
+
+@app.after_request
+def _set_security_headers(response):
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    response.headers['X-Frame-Options'] = 'DENY'
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
+    response.headers['Content-Security-Policy'] = CONTENT_SECURITY_POLICY
+    if _request_is_https():
+        response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
+    return response
 
 
 def _validate_drone_access(drone_id):
@@ -45,7 +136,10 @@ def index():
 
 @app.route('/login')
 def login():
-    session.clear()
+    # Log out app state but preserve flashed messages and the CSRF token so error
+    # feedback (e.g. wrong admin code / lockout) is visible on the rendered page.
+    for key in ('region', 'region_id', 'is_admin'):
+        session.pop(key, None)
     return render_template('login.html')
 
 
@@ -78,14 +172,61 @@ def logout():
 
 @app.route('/admin_login', methods=['POST'])
 def admin_login():
-    code = (request.form.get('admin_code') or '').strip()
-    if code != ADMIN_CODE:
-        flash('Λάθος κωδικός διαχειριστή.')
+    ip = _client_ip()
+    now = time.time()
+    record = _admin_login_attempts.get(ip)
+
+    # Reject while locked out.
+    if record and record.get('locked_until', 0) > now:
+        remaining = int(record['locked_until'] - now)
+        flash(f'Πολλές αποτυχημένες προσπάθειες. Δοκιμάστε ξανά σε {remaining} δευτερόλεπτα.')
         return redirect(url_for('login'))
+
+    code = (request.form.get('admin_code') or '').strip()
+    if not secrets.compare_digest(code, ADMIN_CODE):
+        # Reset the window if the previous attempts are stale.
+        if not record or (now - record.get('first', now)) > ADMIN_LOCKOUT_SECONDS:
+            record = {'count': 0, 'first': now, 'locked_until': 0}
+        record['count'] += 1
+        if record['count'] >= ADMIN_MAX_ATTEMPTS:
+            record['locked_until'] = now + ADMIN_LOCKOUT_SECONDS
+            record['count'] = 0
+            flash(f'Πολλές αποτυχημένες προσπάθειες. Ο λογαριασμός κλειδώθηκε για {ADMIN_LOCKOUT_SECONDS // 60} λεπτά.')
+        else:
+            attempts_left = ADMIN_MAX_ATTEMPTS - record['count']
+            flash(f'Λάθος κωδικός διαχειριστή. Απομένουν {attempts_left} προσπάθειες.')
+        _admin_login_attempts[ip] = record
+        return redirect(url_for('login'))
+
+    # Successful login clears any failed-attempt state.
+    _admin_login_attempts.pop(ip, None)
     session.clear()
     session['is_admin'] = True
     session.modified = True
     return redirect(url_for('admin'))
+
+
+@app.route('/privacy')
+def privacy():
+    return render_template('privacy.html')
+
+
+@app.errorhandler(400)
+def bad_request(e):
+    return render_template('error.html', code=400,
+                           message='Μη έγκυρο αίτημα. Ανανεώστε τη σελίδα και δοκιμάστε ξανά.'), 400
+
+
+@app.errorhandler(404)
+def not_found(e):
+    return render_template('error.html', code=404,
+                           message='Η σελίδα που ζητήσατε δεν βρέθηκε.'), 404
+
+
+@app.errorhandler(500)
+def server_error(e):
+    return render_template('error.html', code=500,
+                           message='Προέκυψε εσωτερικό σφάλμα. Παρακαλώ δοκιμάστε ξανά αργότερα.'), 500
 
 
 @app.route('/admin')

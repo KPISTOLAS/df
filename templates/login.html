@@ -113,14 +113,71 @@
       font-size: 0.85rem;
       color: #7f8c8d;
     }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      justify-content: center;
+      margin-bottom: 6px;
+    }
+    .brand svg { flex: 0 0 auto; }
+    .brand .brand-text { text-align: left; }
+    .brand .brand-title {
+      font-size: 1.15rem;
+      font-weight: bold;
+      color: #c0392b;
+      line-height: 1.1;
+    }
+    .brand .brand-sub {
+      font-size: 0.8rem;
+      color: #7f8c8d;
+    }
+    h1 { font-size: 1.25rem; }
+    /* Visible keyboard focus indicator (WCAG 2.4.7) */
+    a:focus-visible,
+    button:focus-visible,
+    select:focus-visible,
+    input:focus-visible,
+    summary:focus-visible {
+      outline: 3px solid #2980b9;
+      outline-offset: 2px;
+    }
+    .login-footer {
+      margin-top: 22px;
+      text-align: center;
+      font-size: 0.8rem;
+      color: #7f8c8d;
+    }
+    .login-footer a { color: #2980b9; }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      padding: 0;
+      margin: -1px;
+      overflow: hidden;
+      clip: rect(0, 0, 0, 0);
+      white-space: nowrap;
+      border: 0;
+    }
   </style>
 </head>
 <body>
-  <div class="login-container">
+  <main class="login-container">
+    <div class="brand">
+      <svg width="40" height="40" viewBox="0 0 24 24" role="img" aria-label="Λογότυπο Node Network">
+        <path fill="#c0392b" d="M12 2c1.5 3 4.5 4.5 4.5 8.5 0 1.6-.7 3-1.8 4 .2-.6.3-1.2.3-1.8 0-2.5-2-3.7-2-6.2-1.5 1.5-3 3.3-3 5.8 0 .8.2 1.6.6 2.2C9.3 17.9 8 16.3 8 14c0-3.6 2.5-5.4 4-12z"/>
+        <path fill="#e67e22" d="M12 21a4 4 0 0 1-4-4c0-2 2-3.2 2-5 .9 1 1.5 2 1.5 3.3 0 .6-.2 1.1-.4 1.6.6-.4 1-1.1 1-1.9 0-1.4-.8-2.3-.8-3.6 1 .9 2.7 2.3 2.7 4.6A4 4 0 0 1 12 21z"/>
+      </svg>
+      <div class="brand-text">
+        <div class="brand-title">Node Network</div>
+        <div class="brand-sub">Σύστημα Διαχείρισης Δικτύου Πυροσβεστικών Υπηρεσιών</div>
+      </div>
+    </div>
     <h1>Επιλογή Περιφερειακής Πυροσβεστικής Διοίκησης</h1>
 {% with messages = get_flashed_messages() %}
       {% if messages %}
-        <div class="alert alert-danger">
+        <div class="alert alert-danger" role="alert" aria-live="assertive">
           {% for message in messages %}
             {{ message }}
           {% endfor %}
@@ -129,6 +186,7 @@
     {% endwith %}
 
     <form action="{{ url_for('set_region') }}" method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="form-group">
         <label for="region">Επιλέξτε Περιφερειακή Πυροσβεστική Διοίκηση:</label>
         <select id="region" name="region" required>
@@ -155,13 +213,20 @@
     <details class="admin-access">
       <summary>Πρόσβαση Διαχειριστή</summary>
       <form action="{{ url_for('admin_login') }}" method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label for="admin_code" class="sr-only">Κωδικός διαχειριστή</label>
         <div class="admin-fields">
-          <input type="password" name="admin_code" placeholder="Κωδικός διαχειριστή" required autocomplete="off" />
+          <input type="password" id="admin_code" name="admin_code" placeholder="Κωδικός διαχειριστή"
+                 required autocomplete="off" aria-describedby="admin-hint" />
           <button type="submit">Είσοδος</button>
         </div>
-        <p class="admin-hint">Εισάγετε τον κωδικό διαχειριστή για να δείτε τα στατιστικά του συστήματος.</p>
+        <p class="admin-hint" id="admin-hint">Εισάγετε τον κωδικό διαχειριστή για να δείτε τα στατιστικά του συστήματος.</p>
       </form>
     </details>
-  </div>
+
+    <footer class="login-footer">
+      <a href="{{ url_for('privacy') }}">Πολιτική Απορρήτου</a>
+    </footer>
+  </main>
 </body>
 </html>

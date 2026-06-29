@@ -38,3 +38,19 @@ toolchain. The Flask entrypoint is `App_test.py` (not `app.py`).
   node message stats, and parent-node report stats. JSON at `/api/admin/stats`.
 - Drone telemetry (`/api/drones`, `/drone`) is simulated in-memory by `drone_sim.py`; it falls
   back to mock drones if the DB table is missing/empty.
+
+### Security hardening (non-obvious)
+- All POST forms require a CSRF token (`{{ csrf_token() }}` hidden field, validated in a
+  global `before_request` in `App_test.py`). Any new POST form/endpoint MUST include it or it
+  will 400. API endpoints are GET-only and exempt.
+- A global `after_request` sets security headers incl. a Content-Security-Policy. The CSP
+  allowlists the app's CDNs (Leaflet via `unpkg`, Font Awesome via `cdnjs`, OSM tiles); if you
+  add a new external script/style/font/image host, update `CONTENT_SECURITY_POLICY` or it will
+  be blocked.
+- Admin login has in-memory brute-force lockout (per client IP). Because it is in-memory, it
+  resets on restart and is per-worker — fine for the single-worker PythonAnywhere setup.
+- Production env vars (all optional, safe defaults for local dev): `SECRET_KEY`,
+  `ADMIN_PANEL_CODE`, `ADMIN_MAX_ATTEMPTS`, `ADMIN_LOCKOUT_SECONDS`,
+  `SESSION_COOKIE_SECURE=true`, `FORCE_HTTPS=true`. HSTS is sent automatically only over HTTPS.
+- `/login` intentionally clears only `region`/`region_id`/`is_admin` (not the whole session) so
+  flashed error messages and the CSRF token survive the redirect and render.

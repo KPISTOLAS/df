@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Πολιτική Απορρήτου - Node Network</title>
+  <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      background: #f5f8fb;
+      color: #2c3e50;
+      margin: 0;
+      padding: 30px 16px 60px;
+    }
+    .container {
+      background: #fff;
+      max-width: 760px;
+      margin: 0 auto;
+      padding: 32px;
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.07);
+    }
+    h1 { font-size: 1.4rem; }
+    h2 { font-size: 1.05rem; margin-top: 26px; }
+    p, li { color: #555; line-height: 1.55; }
+    a { color: #2980b9; }
+    a:focus-visible { outline: 3px solid #2980b9; outline-offset: 2px; }
+    .back {
+      display: inline-block;
+      margin-bottom: 18px;
+      padding: 8px 14px;
+      background: #2c3e50;
+      color: #fff;
+      text-decoration: none;
+      border-radius: 4px;
+    }
+    .back:hover { background: #1a252f; }
+    .updated { font-size: 0.85rem; color: #95a5a6; }
+  </style>
+</head>
+<body>
+  <main class="container">
+    <a class="back" href="{{ url_for('login') }}">&larr; Επιστροφή</a>
+    <h1>Πολιτική Απορρήτου &amp; Cookies</h1>
+    <p class="updated">Τελευταία ενημέρωση: 2026</p>
+
+    <h2>Ποια δεδομένα επεξεργαζόμαστε</h2>
+    <p>
+      Η εφαρμογή «Node Network» χρησιμοποιείται για την παρακολούθηση δικτύου αισθητήρων
+      και μη επανδρωμένων αεροσκαφών (ΣΜΗΕΑ) των Πυροσβεστικών Υπηρεσιών. Δεν συλλέγουμε
+      προσωπικά δεδομένα επισκεπτών πέραν των απολύτως απαραίτητων για τη λειτουργία της
+      εφαρμογής.
+    </p>
+
+    <h2>Cookies</h2>
+    <p>
+      Χρησιμοποιείται αποκλειστικά ένα <strong>απολύτως απαραίτητο cookie συνεδρίας</strong>
+      (session cookie) για τη διατήρηση της επιλεγμένης Περιφερειακής Διοίκησης και της
+      κατάστασης σύνδεσης. Το cookie αυτό είναι HttpOnly, δεν χρησιμοποιείται για διαφημίσεις
+      ή ανάλυση επισκεψιμότητας, και διαγράφεται με την αποσύνδεση ή το κλείσιμο του
+      προγράμματος περιήγησης. Σύμφωνα με τον GDPR, τα απολύτως απαραίτητα cookies δεν
+      απαιτούν προηγούμενη συγκατάθεση.
+    </p>
+
+    <h2>Ασφάλεια</h2>
+    <p>
+      Η μετάδοση δεδομένων προστατεύεται με HTTPS/TLS. Η πρόσβαση στον πίνακα διαχειριστή
+      προστατεύεται με κωδικό, περιορισμό ρυθμού (rate limiting) και προστασία CSRF.
+    </p>
+
+    <h2>Δικαιώματά σας (GDPR)</h2>
+    <p>
+      Έχετε δικαίωμα πρόσβασης, διόρθωσης και διαγραφής των δεδομένων σας. Για οποιοδήποτε
+      αίτημα σχετικά με την προστασία δεδομένων, επικοινωνήστε με τον διαχειριστή του
+      συστήματος.
+    </p>
+  </main>
+</body>
+</html>
