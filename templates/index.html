@@ -469,12 +469,22 @@
     ).addTo(map);
   });
 
-  if (markerCount > 0) {
-    map.fitBounds(markerLatLngs, { padding: [30, 30] });
+  // Recompute size before fitting so tiles fill the panel even if the flex
+  // layout had not settled when Leaflet initialised.
+  map.invalidateSize();
+  if (markerCount > 1) {
+    // maxZoom prevents tightly-clustered nodes from zooming to street level.
+    map.fitBounds(markerLatLngs, { padding: [30, 30], maxZoom: 14 });
+    mapStatus.textContent = `Εμφανίζονται ${markerCount} κόμβοι στον χάρτη.`;
+  } else if (markerCount === 1) {
+    map.setView(markerLatLngs[0], 12);
     mapStatus.textContent = `Εμφανίζονται ${markerCount} κόμβοι στον χάρτη.`;
   } else {
     mapStatus.textContent = 'Δεν βρέθηκαν κόμβοι για εμφάνιση.';
   }
+
+  // Keep the map correctly sized on window/layout changes.
+  window.addEventListener('resize', () => map.invalidateSize());
 
   // Slide-out color legend toggle.
   const legendSlide = document.getElementById('legend-slide');

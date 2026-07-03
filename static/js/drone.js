@@ -37,7 +37,21 @@ const markers = {};
 let selectedDroneId = drones.length > 0 ? drones[0].drone_id : null;
 
 function getInitialCoords(drone) {
-  return [drone.home_lat || 40.95, drone.home_lng || 24.5];
+  const lat = parseFloat(drone.home_lat);
+  const lng = parseFloat(drone.home_lng);
+  return [Number.isFinite(lat) ? lat : 40.95, Number.isFinite(lng) ? lng : 24.5];
+}
+
+function fitToDrones() {
+  // Leaflet computes tile/bounds geometry from the container size, which may be
+  // 0 before the CSS grid settles — recompute it first so tiles fill the panel.
+  map.invalidateSize();
+  if (drones.length === 1) {
+    map.setView(getInitialCoords(drones[0]), 12);
+  } else if (drones.length > 1) {
+    // maxZoom stops a single tight cluster from zooming to street level.
+    map.fitBounds(L.latLngBounds(drones.map(getInitialCoords)), { padding: [40, 40], maxZoom: 12 });
+  }
 }
 
 function initMarkers() {
@@ -52,9 +66,7 @@ function initMarkers() {
     marker.on('click', () => selectDrone(drone.drone_id));
     markers[drone.drone_id] = marker;
   });
-  if (drones.length > 0) {
-    map.fitBounds(L.latLngBounds(drones.map(d => getInitialCoords(d))), { padding: [40, 40] });
-  }
+  fitToDrones();
 }
 
 function selectDrone(droneId) {
@@ -67,7 +79,9 @@ function selectDrone(droneId) {
     marker.setIcon(makeDroneIcon(id === droneId));
     marker.setZIndexOffset(id === droneId ? 2000 : 1000);
   });
-  updateSelectedTelemetry();
+  // A user picking a drone should recenter on it; the initial load should not
+  // (that would override fitToDrones and hide the other markers).
+  updateSelectedTelemetry(true);
 }
 
 function bindListClicks() {
@@ -98,7 +112,7 @@ function updateListStats(liveDrones) {
 function updateMarkerPositions(liveDrones) {
   liveDrones.forEach(drone => {
     const marker = markers[drone.drone_id];
-    if (marker) marker.setLatLng([drone.location.lat, drone.location.lon]);
+    if (marker && drone.location) marker.setLatLng([drone.location.lat, drone.location.lon]);
   });
 }
 
@@ -158,13 +172,17 @@ async function fetchDroneTelemetry(droneId) {
   }
 }
 
-async function updateSelectedTelemetry() {
+async function updateSelectedTelemetry(pan = false) {
   if (!selectedDroneId) return;
   const data = await fetchDroneTelemetry(selectedDroneId);
-  if (data) {
+  if (data && data.location) {
     renderTelemetry(data);
     const marker = markers[selectedDroneId];
-    if (marker) map.panTo([data.location.lat, data.location.lon]);
+    if (pan && marker) {
+      // panInside only nudges the map if the drone is off-screen, so an in-view
+      // selection stays put and other markers remain visible.
+      map.panInside([data.location.lat, data.location.lon], { padding: [60, 60] });
+    }
   }
 }
 
@@ -181,5 +199,8 @@ async function updateAllDrones() {
 
 initMarkers();
 bindListClicks();
-if (selectedDroneId) updateSelectedTelemetry();
+if (selectedDroneId) updateSelectedTelemetry(false);
 setInterval(updateAllDrones, 2000);
+
+// Keep the map sized correctly when the window/layout changes.
+window.addEventListener('resize', () => map.invalidateSize());
