@@ -265,7 +265,11 @@
       <p class="muted" style="margin-top:-8px;">
         Τα webhooks δέχονται ειδοποίηση (HTTP POST) όταν ο βαθμός επικινδυνότητας ενός κόμβου
         φτάσει ή ξεπεράσει το επιλεγμένο όριο (κλίμακα 1–5).
+        {% if graphql_enabled %}
         <a href="/graphql" target="_blank" rel="noopener">Άνοιγμα GraphQL Explorer</a>
+        {% else %}
+        <span class="muted">(GraphQL απενεργοποιημένο — εκτελέστε <code>pip install -r requirements.txt</code>)</span>
+        {% endif %}
       </p>
 
       <form id="webhook-form" class="webhook-form">

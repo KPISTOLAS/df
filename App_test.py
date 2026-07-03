@@ -10,10 +10,22 @@ from DatabaseScript import (
 )
 from drone_sim import step_all, snapshot
 import webhooks as wh
-from graphql_api import graphql_bp
 
 app = Flask(__name__)
-app.register_blueprint(graphql_bp)
+
+# GraphQL is an optional add-on. If its dependency (graphene) is not installed
+# yet on the host, keep the rest of the dashboard running instead of failing to
+# boot the whole WSGI app. Install requirements.txt to enable /graphql.
+try:
+    from graphql_api import graphql_bp
+    app.register_blueprint(graphql_bp)
+    GRAPHQL_ENABLED = True
+except Exception as _graphql_import_error:  # pragma: no cover - environment dependent
+    GRAPHQL_ENABLED = False
+    app.logger.warning(
+        "GraphQL API disabled (could not import graphql_api): "
+        f"{_graphql_import_error}. Run 'pip install -r requirements.txt' to enable it."
+    )
 
 # Set a fixed secret key for development (use environment variable in production)
 app.config['SECRET_KEY'] = '123123123'
@@ -99,7 +111,8 @@ def admin():
         from DatabaseScript import REGION_NAME_TO_ID
         stats = get_admin_stats()
         regions = [{"name": name, "region_id": rid} for name, rid in REGION_NAME_TO_ID.items()]
-        return render_template('admin.html', stats=stats, regions=regions)
+        return render_template('admin.html', stats=stats, regions=regions,
+                               graphql_enabled=GRAPHQL_ENABLED)
     except Exception as e:
         app.logger.error(f"Error loading admin panel: {e}\n{traceback.format_exc()}")
         abort(500)
