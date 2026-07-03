@@ -9,8 +9,11 @@ from DatabaseScript import (
     get_admin_stats,
 )
 from drone_sim import step_all, snapshot
+import webhooks as wh
+from graphql_api import graphql_bp
 
 app = Flask(__name__)
+app.register_blueprint(graphql_bp)
 
 # Set a fixed secret key for development (use environment variable in production)
 app.config['SECRET_KEY'] = '123123123'
@@ -93,8 +96,10 @@ def admin():
     if not session.get('is_admin'):
         return redirect(url_for('login'))
     try:
+        from DatabaseScript import REGION_NAME_TO_ID
         stats = get_admin_stats()
-        return render_template('admin.html', stats=stats)
+        regions = [{"name": name, "region_id": rid} for name, rid in REGION_NAME_TO_ID.items()]
+        return render_template('admin.html', stats=stats, regions=regions)
     except Exception as e:
         app.logger.error(f"Error loading admin panel: {e}\n{traceback.format_exc()}")
         abort(500)
@@ -109,6 +114,92 @@ def api_admin_stats():
     except Exception as e:
         app.logger.error(f"/api/admin/stats failed: {e}")
         return jsonify({"error": "Failed to load stats", "details": str(e)}), 500
+
+
+def _load_all_nodes():
+    """All nodes (with latest danger_level + region) — used by the alert engine."""
+    from DatabaseScript import get_nodes_for_dashboard
+    return get_nodes_for_dashboard(wh.HEADQUARTERS) or []
+
+
+def _admin_required_json():
+    """Return an error response tuple when the caller is not an admin, else None."""
+    if not session.get('is_admin'):
+        return jsonify({"error": "unauthorized"}), 401
+    return None
+
+
+@app.route('/api/webhooks', methods=['GET', 'POST'])
+def api_webhooks():
+    guard = _admin_required_json()
+    if guard:
+        return guard
+    if request.method == 'GET':
+        return jsonify({"webhooks": wh.list_webhooks()})
+    try:
+        payload = request.get_json(silent=True) or request.form
+        sub = wh.create_webhook(
+            url=payload.get('url'),
+            min_danger_level=payload.get('min_danger_level', wh.DEFAULT_THRESHOLD),
+            region=payload.get('region'),
+            description=payload.get('description', ''),
+        )
+        return jsonify({"webhook": sub}), 201
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except Exception as e:
+        app.logger.error(f"/api/webhooks create failed: {e}")
+        return jsonify({"error": "Failed to create webhook", "details": str(e)}), 500
+
+
+@app.route('/api/webhooks/<webhook_id>', methods=['DELETE', 'PATCH'])
+def api_webhook_detail(webhook_id):
+    guard = _admin_required_json()
+    if guard:
+        return guard
+    if request.method == 'DELETE':
+        return (jsonify({"deleted": True}) if wh.delete_webhook(webhook_id)
+                else (jsonify({"error": "not found"}), 404))
+    payload = request.get_json(silent=True) or request.form
+    updated = wh.set_enabled(webhook_id, str(payload.get('enabled')).lower() in ('1', 'true', 'on', 'yes'))
+    return jsonify({"webhook": updated}) if updated else (jsonify({"error": "not found"}), 404)
+
+
+@app.route('/api/webhooks/<webhook_id>/test', methods=['POST'])
+def api_webhook_test(webhook_id):
+    guard = _admin_required_json()
+    if guard:
+        return guard
+    result = wh.test_webhook(webhook_id)
+    return jsonify({"result": result}) if result else (jsonify({"error": "not found"}), 404)
+
+
+@app.route('/api/alerts')
+def api_alerts():
+    guard = _admin_required_json()
+    if guard:
+        return guard
+    try:
+        from DatabaseScript import get_region_id  # noqa: F401 (kept for symmetry)
+        threshold = int(request.args.get('threshold', wh.MIN_LEVEL))
+        return jsonify({"alerts": wh.current_alerts(_load_all_nodes, threshold)})
+    except Exception as e:
+        app.logger.error(f"/api/alerts failed: {e}")
+        return jsonify({"error": "Failed to load alerts", "details": str(e)}), 500
+
+
+@app.route('/api/alerts/evaluate', methods=['POST'])
+def api_alerts_evaluate():
+    guard = _admin_required_json()
+    if guard:
+        return guard
+    try:
+        from DatabaseScript import get_region_id
+        summary = wh.evaluate_and_dispatch(_load_all_nodes, get_region_id)
+        return jsonify(summary)
+    except Exception as e:
+        app.logger.error(f"/api/alerts/evaluate failed: {e}")
+        return jsonify({"error": "Failed to evaluate alerts", "details": str(e)}), 500
 
 
 @app.route('/dashboard')
