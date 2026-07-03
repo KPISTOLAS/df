@@ -258,6 +258,189 @@
       <p class="empty-note">Δεν υπάρχουν προβληματικές αναφορές.</p>
       {% endif %}
     </section>
+
+    <!-- Webhooks & alerts -->
+    <section id="webhooks">
+      <h2>Ειδοποιήσεις Webhook &amp; GraphQL</h2>
+      <p class="muted" style="margin-top:-8px;">
+        Τα webhooks δέχονται ειδοποίηση (HTTP POST) όταν ο βαθμός επικινδυνότητας ενός κόμβου
+        φτάσει ή ξεπεράσει το επιλεγμένο όριο (κλίμακα 1–5).
+        <a href="/graphql" target="_blank" rel="noopener">Άνοιγμα GraphQL Explorer</a>
+      </p>
+
+      <form id="webhook-form" class="webhook-form">
+        <input type="url" name="url" placeholder="https://example.com/hook" required />
+        <select name="min_danger_level" title="Ελάχιστο όριο επικινδυνότητας">
+          <option value="1">≥ 1 (Χαμηλός)</option>
+          <option value="2">≥ 2</option>
+          <option value="3" selected>≥ 3 (Μέτριος)</option>
+          <option value="4">≥ 4</option>
+          <option value="5">≥ 5 (Κρίσιμος)</option>
+        </select>
+        <select name="region" title="Περιφέρεια">
+          <option value="">Όλες οι περιφέρειες</option>
+          {% for r in regions %}
+          <option value="{{ r.name }}">{{ r.name }} ({{ r.region_id }})</option>
+          {% endfor %}
+        </select>
+        <input type="text" name="description" placeholder="Περιγραφή (προαιρετικό)" />
+        <button type="submit" class="btn-primary">Προσθήκη</button>
+      </form>
+      <p id="webhook-msg" class="muted"></p>
+
+      <div style="margin:12px 0;">
+        <button id="evaluate-btn" class="btn-primary">Αξιολόγηση &amp; αποστολή ειδοποιήσεων τώρα</button>
+        <button id="refresh-webhooks" class="btn-secondary">Ανανέωση λίστας</button>
+        <span id="evaluate-result" class="muted"></span>
+      </div>
+
+      <table id="webhooks-table">
+        <thead>
+          <tr>
+            <th>URL</th>
+            <th>Όριο</th>
+            <th>Περιφέρεια</th>
+            <th>Κατάσταση</th>
+            <th>Τελευταία αποστολή</th>
+            <th>Ενέργειες</th>
+          </tr>
+        </thead>
+        <tbody id="webhooks-body">
+          <tr><td colspan="6" class="muted">Φόρτωση…</td></tr>
+        </tbody>
+      </table>
+    </section>
   </main>
+
+  <style>
+    .webhook-form { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px; }
+    .webhook-form input, .webhook-form select {
+      padding:8px 10px; border:1px solid #cdd6df; border-radius:5px; font-size:0.9rem;
+    }
+    .webhook-form input[type="url"] { flex:2 1 260px; }
+    .webhook-form input[type="text"] { flex:1 1 160px; }
+    .btn-primary { background:#3498db; color:#fff; border:none; padding:8px 14px; border-radius:5px;
+      font-weight:bold; cursor:pointer; }
+    .btn-primary:hover { background:#2980b9; }
+    .btn-secondary { background:#ecf0f1; color:#2c3e50; border:1px solid #cdd6df; padding:8px 14px;
+      border-radius:5px; font-weight:bold; cursor:pointer; }
+    .btn-danger { background:#e74c3c; color:#fff; border:none; padding:5px 10px; border-radius:4px;
+      cursor:pointer; font-size:0.8rem; }
+    .btn-mini { background:#ecf0f1; color:#2c3e50; border:1px solid #cdd6df; padding:5px 10px;
+      border-radius:4px; cursor:pointer; font-size:0.8rem; margin-right:4px; }
+  </style>
+
+  <script>
+    const $body = document.getElementById('webhooks-body');
+    const $msg = document.getElementById('webhook-msg');
+
+    function esc(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, c => (
+        {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]
+      ));
+    }
+
+    async function loadWebhooks() {
+      $body.innerHTML = '<tr><td colspan="6" class="muted">Φόρτωση…</td></tr>';
+      try {
+        const res = await fetch('/api/webhooks');
+        const data = await res.json();
+        const hooks = data.webhooks || [];
+        if (!hooks.length) {
+          $body.innerHTML = '<tr><td colspan="6" class="empty-note">Δεν υπάρχουν καταχωρημένα webhooks.</td></tr>';
+          return;
+        }
+        $body.innerHTML = hooks.map(h => {
+          const status = h.enabled ? '<span class="tag tag-ok">Ενεργό</span>' : '<span class="tag tag-empty">Ανενεργό</span>';
+          const last = h.last_status != null
+            ? `${esc(h.last_triggered_at || '')} (HTTP ${esc(h.last_status)})`
+            : (h.last_error ? esc(h.last_error) : '—');
+          return `<tr>
+            <td class="muted" style="max-width:280px;word-break:break-all;">${esc(h.url)}${h.description ? '<br><small>'+esc(h.description)+'</small>' : ''}</td>
+            <td>≥ ${esc(h.min_danger_level)}</td>
+            <td>${esc(h.region || 'Όλες')}</td>
+            <td>${status}</td>
+            <td class="muted">${last}</td>
+            <td>
+              <button class="btn-mini" data-act="test" data-id="${esc(h.id)}">Δοκιμή</button>
+              <button class="btn-mini" data-act="toggle" data-id="${esc(h.id)}" data-enabled="${h.enabled}">${h.enabled ? 'Απενεργοποίηση' : 'Ενεργοποίηση'}</button>
+              <button class="btn-danger" data-act="delete" data-id="${esc(h.id)}">Διαγραφή</button>
+            </td>
+          </tr>`;
+        }).join('');
+      } catch (e) {
+        $body.innerHTML = `<tr><td colspan="6" class="tag-error">Σφάλμα φόρτωσης: ${esc(e)}</td></tr>`;
+      }
+    }
+
+    document.getElementById('webhook-form').addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      $msg.textContent = 'Αποθήκευση…';
+      const form = ev.target;
+      const payload = {
+        url: form.url.value,
+        min_danger_level: form.min_danger_level.value,
+        region: form.region.value,
+        description: form.description.value,
+      };
+      const res = await fetch('/api/webhooks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        $msg.textContent = 'Το webhook προστέθηκε.';
+        form.reset();
+        loadWebhooks();
+      } else {
+        $msg.textContent = 'Σφάλμα: ' + (data.error || res.status);
+      }
+    });
+
+    $body.addEventListener('click', async (ev) => {
+      const btn = ev.target.closest('button[data-act]');
+      if (!btn) return;
+      const id = btn.dataset.id;
+      const act = btn.dataset.act;
+      btn.disabled = true;
+      try {
+        if (act === 'delete') {
+          await fetch('/api/webhooks/' + id, { method: 'DELETE' });
+        } else if (act === 'toggle') {
+          const enabled = btn.dataset.enabled !== 'true';
+          await fetch('/api/webhooks/' + id, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ enabled }),
+          });
+        } else if (act === 'test') {
+          const res = await fetch('/api/webhooks/' + id + '/test', { method: 'POST' });
+          const data = await res.json();
+          const r = data.result || {};
+          $msg.textContent = r.ok ? `Δοκιμή OK (HTTP ${r.status}).` : `Δοκιμή απέτυχε: ${r.error || r.status}`;
+        }
+      } finally {
+        loadWebhooks();
+      }
+    });
+
+    document.getElementById('refresh-webhooks').addEventListener('click', loadWebhooks);
+
+    document.getElementById('evaluate-btn').addEventListener('click', async () => {
+      const out = document.getElementById('evaluate-result');
+      out.textContent = 'Αξιολόγηση…';
+      const res = await fetch('/api/alerts/evaluate', { method: 'POST' });
+      const data = await res.json();
+      if (res.ok) {
+        out.textContent = `Ενεργοποιήθηκαν ${data.triggered_webhooks}/${data.enabled_webhooks} webhooks · ${data.matched_nodes} κόμβοι σε συναγερμό.`;
+        loadWebhooks();
+      } else {
+        out.textContent = 'Σφάλμα: ' + (data.error || res.status);
+      }
+    });
+
+    loadWebhooks();
+  </script>
 </body>
 </html>
